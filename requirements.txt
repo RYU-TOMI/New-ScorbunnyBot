@@ -1,0 +1,9 @@
+discord.py
+yt-dlp
+PyNaCl
+python-dotenv
+discord.py[voice]
+
+## FFmpeg 설치해줘야 함
+
+## bash -> winget install ffempeg
