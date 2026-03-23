@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>오류</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f1923;
+            color: #ece8e1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: #1b2733;
+            border-radius: 12px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        .icon { font-size: 48px; margin-bottom: 16px; }
+        h1 { font-size: 22px; margin-bottom: 12px; color: #ff4655; }
+        p { font-size: 14px; color: #768a96; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">❌</div>
+        <h1>오류 발생</h1>
+        <p>{{ message }}</p>
+        <p style="margin-top: 8px;">디스코드에서 /로그인을 다시 시도해주세요.</p>
+    </div>
+</body>
+</html>

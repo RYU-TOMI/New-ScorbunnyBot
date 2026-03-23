@@ -3,6 +3,10 @@ yt-dlp
 PyNaCl
 python-dotenv
 discord.py[voice]
+aiosqlite
+aiohttp
+cryptography
+flask
 
 ## FFmpeg 설치해줘야 함
 

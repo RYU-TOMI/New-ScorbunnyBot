@@ -14,7 +14,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 async def load_extensions():
     await bot.load_extension("cogs.music.cog")
-    # await bot.load_extension("cogs.valorant.cog")  # 나중에 추가
+    await bot.load_extension("cogs.valorant.cog") 
 
 @bot.event
 async def on_ready():

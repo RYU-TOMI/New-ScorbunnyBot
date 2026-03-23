@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>염버니 - 로그인 처리중</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f1923;
+            color: #ece8e1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: #1b2733;
+            border-radius: 12px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid #2d3d4a;
+            border-top: 4px solid #ff4655;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        h1 { font-size: 20px; margin-bottom: 12px; }
+        p { font-size: 14px; color: #768a96; }
+        .success { color: #4ade80; }
+        .error { color: #ff4655; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="loading">
+            <div class="spinner"></div>
+            <h1>로그인 처리중...</h1>
+            <p>잠시만 기다려주세요.</p>
+        </div>
+        <div id="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        (async function() {
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+
+            // URL fragment에서 토큰 추출
+            const hash = window.location.hash.substring(1);
+            const params = new URLSearchParams(hash);
+
+            const accessToken = params.get('access_token');
+            const idToken = params.get('id_token');
+            const state = params.get('state');
+
+            if (!accessToken) {
+                loading.style.display = 'none';
+                result.style.display = 'block';
+                result.innerHTML = `
+                    <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
+                    <h1 class="error">로그인 실패</h1>
+                    <p>토큰을 받지 못했어요. 디스코드에서 /로그인을 다시 시도해주세요.</p>
+                `;
+                return;
+            }
+
+            try {
+                const resp = await fetch('/api/save-token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        access_token: accessToken,
+                        id_token: idToken,
+                        state: state,
+                    }),
+                });
+
+                const data = await resp.json();
+
+                loading.style.display = 'none';
+                result.style.display = 'block';
+
+                if (data.success) {
+                    result.innerHTML = `
+                        <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
+                        <h1 class="success">로그인 성공!</h1>
+                        <p>디스코드로 돌아가서 /상점 명령어를 사용해보세요.</p>
+                        <p style="margin-top: 8px;">이 페이지는 닫아도 됩니다.</p>
+                    `;
+                } else {
+                    result.innerHTML = `
+                        <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
+                        <h1 class="error">오류 발생</h1>
+                        <p>${data.error || '알 수 없는 오류'}</p>
+                    `;
+                }
+            } catch (e) {
+                loading.style.display = 'none';
+                result.style.display = 'block';
+                result.innerHTML = `
+                    <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
+                    <h1 class="error">오류 발생</h1>
+                    <p>서버와 통신 중 오류가 발생했어요.</p>
+                `;
+            }
+        })();
+    </script>
+</body>
+</html>

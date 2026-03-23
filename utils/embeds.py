@@ -25,7 +25,7 @@ def queue_embed(queue_items: list, max_size: int, title: str = None) -> discord.
         color=discord.Color.red()
     )
     embed.set_author(name="📃 대기열")
-    for i, (_, song_title) in enumerate(queue_items, 1):
+    for i, (_, song_title, *_rest) in enumerate(queue_items, 1):
         embed.add_field(name=f"{i}.", value=song_title, inline=False)
     return embed
 

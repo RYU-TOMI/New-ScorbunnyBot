@@ -28,10 +28,10 @@ class Music(commands.Cog):
         if not next_track:
             return
 
-        url, title = next_track
+        url, title, requester = next_track
         try:
             player = await YTDLSource.from_url(url, loop=self.bot.loop)
-            queue.current = (url, title)
+            queue.current = (url, title, requester)
 
             def after_playing(error):
                 if error:
@@ -41,7 +41,7 @@ class Music(commands.Cog):
                 )
 
             vc.play(player, after=after_playing)
-            await channel.send(embed=now_playing_embed(player, guild.me))
+            await channel.send(embed=now_playing_embed(player, requester))
         except Exception as e:
             print(f"play_next 오류: {e}")
             await channel.send(embed=error_embed(f"재생 중 오류가 발생했어요: {str(e)}"))
@@ -85,13 +85,13 @@ class Music(commands.Cog):
         vc = interaction.guild.voice_client
 
         if not vc.is_playing():
-            queue.current = (url, player.title)
+            queue.current = (url, player.title, interaction.user)
             vc.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(
                 self.play_next(interaction.guild, interaction.channel), self.bot.loop
             ))
             await interaction.followup.send(embed=now_playing_embed(player, interaction.user))
         else:
-            if not queue.add(url, player.title):
+            if not queue.add(url, player.title, interaction.user):
                 await interaction.followup.send(embed=error_embed(f"대기열이 가득 찼어요. 최대 {queue.max_size}곡까지 추가할 수 있어요."))
                 return
             await interaction.followup.send(embed=queue_embed(queue.items(), queue.max_size, f"{player.title} 이 대기열에 추가됐어요!"))
@@ -140,13 +140,13 @@ class Music(commands.Cog):
         vc = interaction.guild.voice_client
 
         if not vc.is_playing():
-            queue.current = (selected['url'], player.title)
+            queue.current = (selected['url'], player.title, interaction.user)
             vc.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(
                 self.play_next(interaction.guild, interaction.channel), self.bot.loop
             ))
             await interaction.channel.send(embed=now_playing_embed(player, interaction.user))
         else:
-            queue.add(selected['url'], player.title)
+            queue.add(selected['url'], player.title, interaction.user)
             await interaction.channel.send(embed=queue_embed(queue.items(), queue.max_size, f"{player.title} 이 대기열에 추가됐어요!"))
 
     @app_commands.command(name="스킵", description="현재 재생 중인 음악을 건너뜁니다.")
@@ -227,7 +227,7 @@ class Music(commands.Cog):
         if vc.is_playing():
             vc.stop()
         await vc.disconnect()
-        await interaction.response.send_message("🐰 염버니가 음악을 멈추고 집으로 돌아갔어요.", ephemeral=True)
+        await interaction.followup.send("🐰 염버니가 음악을 멈추고 집으로 돌아갔어요.")
 
 async def setup(bot):
     await bot.add_cog(Music(bot))

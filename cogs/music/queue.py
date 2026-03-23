@@ -8,11 +8,11 @@ class MusicQueue:
         self.loop_current = False
         self.current = None
 
-    def add(self, url: str, title: str) -> bool:
+    def add(self, url: str, title: str, requester: str = None) -> bool:
         """큐에 곡 추가. 성공 여부 반환"""
         if len(self._queue) >= self.max_size:
             return False
-        self._queue.append((url, title))
+        self._queue.append((url, title, requester))
         return True
 
     def next(self) -> tuple | None:
