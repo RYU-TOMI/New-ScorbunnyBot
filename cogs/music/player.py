@@ -2,7 +2,7 @@ import asyncio
 import yt_dlp as youtube_dl
 
 YTDL_FORMAT_OPTIONS = {
-    'format': 'bestaudio/best',
+    'format': 'bestaudio[ext=webm]/bestaudio/best',
     'restrictfilenames': True,
     'noplaylist': True,
     'nocheckcertificate': True,
