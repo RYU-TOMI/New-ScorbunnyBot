@@ -12,6 +12,7 @@ YTDL_FORMAT_OPTIONS = {
     'no_warnings': True,
     'default_search': 'auto',
     'source_address': '0.0.0.0',
+    'cookiefile': 'cookies.txt',
 }
 
 FFMPEG_OPTIONS = {
@@ -26,6 +27,7 @@ YTDL_SEARCH_OPTIONS = {
     'default_search': 'ytsearch5',
     'extract_flat': True,
     'skip_download': True,
+    'cookiefile': 'cookies.txt',
 }
 
 ytdl = youtube_dl.YoutubeDL(YTDL_FORMAT_OPTIONS)
