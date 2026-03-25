@@ -11,10 +11,14 @@ import certifi
 import ssl as _ssl
 
 from db.database import (
-    get_user, save_user, delete_user, init_db
+    get_user, save_user, delete_user,
+    save_login_session, init_db
 )
 from .api import get_storefront, parse_daily_store, parse_night_market, REGION_SHARD_MAP
 from .assets import get_skin_info
+
+import os
+WEB_BASE_URL = os.getenv("WEB_BASE_URL", "http://localhost")
 
 RIOT_LOGIN_URL = (
     "https://auth.riotgames.com/authorize"
@@ -43,17 +47,50 @@ class Valorant(commands.Cog):
             )
             return
 
+        # 로그인 세션 생성
+        token = str(uuid.uuid4())
+        expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+        await save_login_session(token, str(interaction.user.id), expires.isoformat())
+
+        # 북마클릿 코드 생성
+        server_url = WEB_BASE_URL
+        bookmarklet = (
+            f"javascript:void((function(){{"
+            f"const h=window.location.hash.substring(1);"
+            f"const p=new URLSearchParams(h);"
+            f"const t=p.get('access_token');"
+            f"const i=p.get('id_token');"
+            f"if(!t){{alert('토큰을 찾을 수 없어요. Riot 로그인 후 이 페이지에서 실행해주세요.');return;}}"
+            f"fetch('{server_url}/api/save-token',{{"
+            f"method:'POST',"
+            f"headers:{{'Content-Type':'application/json'}},"
+            f"body:JSON.stringify({{access_token:t,id_token:i,session_token:'{token}'}})"
+            f"}}).then(r=>r.json()).then(d=>{{"
+            f"if(d.success)alert('✅ 로그인 성공! 디스코드에서 /상점을 사용해보세요.');"
+            f"else alert('❌ 오류: '+d.error);"
+            f"}}).catch(e=>alert('❌ 서버 연결 실패: '+e));"
+            f"}})())"
+        )
+
         embed = discord.Embed(
             title="🔐 발로란트 로그인",
             description=(
-                "**1단계:** 아래 링크에서 라이엇 계정으로 로그인하세요.\n"
-                "**2단계:** 로그인 후 빈 페이지로 이동되면, **주소창의 URL 전체**를 복사하세요.\n"
-                "**3단계:** `/인증` 명령어에 복사한 URL을 붙여넣으세요."
+                "**처음 1회만 설정하면 돼요!**\n\n"
+                "**1단계:** 아래 북마클릿 코드를 복사해서 브라우저 즐겨찾기에 추가하세요.\n"
+                "  → 즐겨찾기 바 우클릭 → '페이지 추가' → 이름: `염버니 로그인` → URL에 아래 코드 붙여넣기\n\n"
+                "**2단계:** 아래 로그인 링크를 클릭해서 Riot 계정으로 로그인하세요.\n\n"
+                "**3단계:** 로그인 후 빈 페이지가 뜨면 즐겨찾기 바에서 `염버니 로그인`을 클릭하세요.\n\n"
+                "**10분** 내에 완료해주세요."
             ),
             color=discord.Color.red(),
         )
         embed.add_field(
-            name="로그인 링크",
+            name="📋 북마클릿 코드 (복사해서 즐겨찾기 URL에 붙여넣기)",
+            value=f"```\n{bookmarklet}\n```",
+            inline=False,
+        )
+        embed.add_field(
+            name="🔗 로그인 링크",
             value=f"[여기를 클릭하세요]({RIOT_LOGIN_URL})",
             inline=False,
         )
@@ -65,7 +102,6 @@ class Valorant(commands.Cog):
     async def verify(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(ephemeral=True)
 
-        # 이미 로그인 확인
         existing = await get_user(str(interaction.user.id))
         if existing:
             await interaction.followup.send(
@@ -75,7 +111,6 @@ class Valorant(commands.Cog):
             return
 
         try:
-            # URL에서 토큰 추출
             if "#" not in url:
                 await interaction.followup.send(
                     "❌ 올바른 URL이 아니에요. 로그인 후 리다이렉트된 주소창의 URL 전체를 복사해주세요.",
@@ -95,12 +130,10 @@ class Valorant(commands.Cog):
                 )
                 return
 
-            # JWT에서 puuid 추출
             payload = access_token.split(".")[1]
             decoded = json.loads(urlsafe_b64decode(f"{payload}==="))
             puuid = decoded.get("sub")
 
-            # entitlements token
             ssl_ctx = _ssl.create_default_context(cafile=certifi.where())
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_ctx)) as session:
                 async with session.post(
@@ -114,7 +147,6 @@ class Valorant(commands.Cog):
                     ent_data = await resp.json()
                     entitlements_token = ent_data["entitlements_token"]
 
-                # region/shard
                 region = "kr"
                 shard = "kr"
                 try:
@@ -133,7 +165,6 @@ class Valorant(commands.Cog):
                 except Exception:
                     pass
 
-            # DB 저장
             await save_user(
                 discord_id=str(interaction.user.id),
                 puuid=puuid,
@@ -180,7 +211,7 @@ class Valorant(commands.Cog):
             minutes = (remaining % 3600) // 60
 
             embeds = []
-            
+
             header_embed = discord.Embed(
                 title="🛒 오늘의 상점",
                 description=f"갱신까지 **{hours}시간 {minutes}분** 남았어요.",
@@ -249,7 +280,6 @@ class Valorant(commands.Cog):
                     inline=False,
                 )
 
-            embed.set_footer(text=f"요청자: {interaction.user}")
             await interaction.followup.send(embed=embed)
 
         except Exception as e:
