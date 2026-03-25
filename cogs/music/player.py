@@ -4,7 +4,7 @@ import yt_dlp as youtube_dl
 YTDL_FORMAT_OPTIONS = {
     'format': 'bestaudio[ext=webm]/bestaudio/best',
     'restrictfilenames': True,
-    'noplaylist': True,
+    'noplaylist': True, 
     'nocheckcertificate': True,
     'ignoreerrors': False,
     'logtostderr': False,
