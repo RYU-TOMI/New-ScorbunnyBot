@@ -1,160 +1,308 @@
-import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-
-from dotenv import load_dotenv
-load_dotenv()
-
-from flask import Flask, render_template, request, redirect, jsonify
-import asyncio
-import json
+import discord
+import uuid
 from datetime import datetime, timedelta, timezone
-from secrets import token_urlsafe
+from discord import app_commands
+from discord.ext import commands
+from base64 import urlsafe_b64decode
+from urllib.parse import parse_qsl, urlsplit
+import json
+import aiohttp
+import certifi
+import ssl as _ssl
 
 from db.database import (
-    get_login_session, delete_login_session, save_user,
-    save_login_session as db_save_login_session
+    get_user, save_user, delete_user,
+    save_login_session, init_db
 )
+from .api import get_storefront, parse_daily_store, parse_night_market, REGION_SHARD_MAP
+from .assets import get_skin_info
 
-app = Flask(__name__)
-app.secret_key = os.getenv("WEB_SECRET_KEY", "dev-secret-key")
+import os
+WEB_BASE_URL = os.getenv("WEB_BASE_URL", "http://localhost")
 
-RIOT_AUTH_URL = (
+RIOT_LOGIN_URL = (
     "https://auth.riotgames.com/authorize"
-    "?redirect_uri=http%3A%2F%2Flocalhost%2Fredirect"
-    "&client_id=riot-client"
+    "?redirect_uri=https%3A%2F%2Fplayvalorant.com%2Fopt_in"
+    "&client_id=play-valorant-web-prod"
     "&response_type=token%20id_token"
     "&nonce=1"
-    "&scope=openid%20link%20ban%20lol_region%20account%20openid"
+    "&scope=account%20openid"
 )
 
 
-def run_async(coro):
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+class Valorant(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
 
+    async def cog_load(self):
+        await init_db()
 
-@app.route("/login/<token>")
-def login_page(token):
-    """로그인 세션 확인 후 Riot 로그인 페이지로 리다이렉트"""
-    session = run_async(get_login_session(token))
+    @app_commands.command(name="로그인", description="발로란트 계정을 연동합니다.")
+    async def login(self, interaction: discord.Interaction):
+        user = await get_user(str(interaction.user.id))
+        if user:
+            await interaction.response.send_message(
+                "✅ 이미 로그인되어 있어요. 다시 로그인하려면 `/로그아웃` 후 다시 시도해주세요.",
+                ephemeral=True,
+            )
+            return
 
-    if not session:
-        return render_template("error.html", message="링크가 만료되었거나 유효하지 않아요.")
+        # 로그인 세션 생성
+        token = str(uuid.uuid4())
+        expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+        await save_login_session(token, str(interaction.user.id), expires.isoformat())
 
-    expires = datetime.fromisoformat(session["expires_at"])
-    if datetime.now(timezone.utc) > expires:
-        run_async(delete_login_session(token))
-        return render_template("error.html", message="링크가 만료되었어요. 디스코드에서 /로그인을 다시 해주세요.")
+        # 북마클릿 코드 생성
+        server_url = WEB_BASE_URL
+        bookmarklet = (
+            f"javascript:void((function(){{"
+            f"const h=window.location.hash.substring(1);"
+            f"const p=new URLSearchParams(h);"
+            f"const t=p.get('access_token');"
+            f"const i=p.get('id_token');"
+            f"if(!t){{alert('토큰을 찾을 수 없어요. Riot 로그인 후 이 페이지에서 실행해주세요.');return;}}"
+            f"fetch('{server_url}/api/save-token',{{"
+            f"method:'POST',"
+            f"headers:{{'Content-Type':'application/json'}},"
+            f"body:JSON.stringify({{access_token:t,id_token:i,session_token:'{token}'}})"
+            f"}}).then(r=>r.json()).then(d=>{{"
+            f"if(d.success)alert('✅ 로그인 성공! 디스코드에서 /상점을 사용해보세요.');"
+            f"else alert('❌ 오류: '+d.error);"
+            f"}}).catch(e=>alert('❌ 서버 연결 실패: '+e));"
+            f"}})())"
+        )
 
-    # token을 state로 전달해서 콜백에서 식별
-    auth_url = RIOT_AUTH_URL + f"&state={token}"
-    return render_template("login.html", token=token, auth_url=auth_url)
+        embed = discord.Embed(
+            title="🔐 발로란트 로그인",
+            description=(
+                "**처음 1회만 설정하면 돼요!**\n\n"
+                "**1단계:** 아래 북마클릿 코드를 복사해서 브라우저 즐겨찾기에 추가하세요.\n"
+                "  → 즐겨찾기 바 우클릭 → '페이지 추가' → 이름: `염버니 로그인` → URL에 아래 코드 붙여넣기\n\n"
+                "**2단계:** 아래 로그인 링크를 클릭해서 Riot 계정으로 로그인하세요.\n\n"
+                "**3단계:** 로그인 후 빈 페이지가 뜨면 즐겨찾기 바에서 `염버니 로그인`을 클릭하세요.\n\n"
+                "**10분** 내에 완료해주세요."
+            ),
+            color=discord.Color.red(),
+        )
+        embed.add_field(
+            name="📋 북마클릿 코드 (복사해서 즐겨찾기 URL에 붙여넣기)",
+            value=f"```\n{bookmarklet}\n```",
+            inline=False,
+        )
+        embed.add_field(
+            name="🔗 로그인 링크",
+            value=f"[여기를 클릭하세요]({RIOT_LOGIN_URL})",
+            inline=False,
+        )
+        embed.set_footer(text="⚠️ 비밀번호는 Riot 공식 페이지에서만 입력됩니다.")
 
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@app.route("/callback")
-def callback_page():
-    """리다이렉트 후 fragment에서 토큰을 추출하는 페이지"""
-    return render_template("callback.html")
+    @app_commands.command(name="인증", description="로그인 후 복사한 URL을 입력합니다.")
+    async def verify(self, interaction: discord.Interaction, url: str):
+        await interaction.response.defer(ephemeral=True)
 
+        existing = await get_user(str(interaction.user.id))
+        if existing:
+            await interaction.followup.send(
+                "✅ 이미 로그인되어 있어요. `/로그아웃` 후 다시 시도해주세요.",
+                ephemeral=True,
+            )
+            return
 
-@app.route("/api/save-token", methods=["POST"])
-def save_token():
-    """JavaScript에서 추출한 토큰을 저장"""
-    data = request.get_json()
+        try:
+            if "#" not in url:
+                await interaction.followup.send(
+                    "❌ 올바른 URL이 아니에요. 로그인 후 리다이렉트된 주소창의 URL 전체를 복사해주세요.",
+                    ephemeral=True,
+                )
+                return
 
-    access_token = data.get("access_token")
-    id_token = data.get("id_token")
-    state = data.get("state")  # login session token
+            fragment = urlsplit(url).fragment
+            params = dict(parse_qsl(fragment))
+            access_token = params.get("access_token")
+            id_token = params.get("id_token")
 
-    if not access_token or not state:
-        return jsonify({"error": "토큰이 없어요."}), 400
+            if not access_token:
+                await interaction.followup.send(
+                    "❌ URL에서 토큰을 찾을 수 없어요. 다시 시도해주세요.",
+                    ephemeral=True,
+                )
+                return
 
-    session = run_async(get_login_session(state))
-    if not session:
-        return jsonify({"error": "세션이 만료되었어요."}), 400
+            payload = access_token.split(".")[1]
+            decoded = json.loads(urlsafe_b64decode(f"{payload}==="))
+            puuid = decoded.get("sub")
 
-    try:
-        import aiohttp
-        import certifi
-        import ssl
-        from base64 import urlsafe_b64decode
-
-        # JWT에서 puuid 추출
-        payload = access_token.split(".")[1]
-        decoded = json.loads(urlsafe_b64decode(f"{payload}==="))
-        puuid = decoded.get("sub")
-
-        # entitlements token 가져오기
-        async def get_entitlements():
-            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_ctx)) as s:
-                async with s.post(
+            ssl_ctx = _ssl.create_default_context(cafile=certifi.where())
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_ctx)) as session:
+                async with session.post(
                     "https://entitlements.auth.riotgames.com/api/token/v1",
                     headers={
                         "Authorization": f"Bearer {access_token}",
                         "Content-Type": "application/json",
                     },
                     json={},
-                ) as r:
-                    ent_data = await r.json()
-                    return ent_data["entitlements_token"]
+                ) as resp:
+                    ent_data = await resp.json()
+                    entitlements_token = ent_data["entitlements_token"]
 
-        entitlements_token = run_async(get_entitlements())
+                region = "kr"
+                shard = "kr"
+                try:
+                    async with session.put(
+                        "https://riot-geo.pas.si.riotgames.com/pas/v1/product/valorant",
+                        headers={
+                            "Authorization": f"Bearer {access_token}",
+                            "Content-Type": "application/json",
+                        },
+                        json={"id_token": id_token or ""},
+                    ) as resp:
+                        if resp.status == 200:
+                            geo_data = await resp.json()
+                            region = geo_data.get("affinities", {}).get("live", "kr")
+                            shard = REGION_SHARD_MAP.get(region, "kr")
+                except Exception:
+                    pass
 
-        # region/shard 가져오기
-        async def get_region():
-            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_ctx)) as s:
-                async with s.put(
-                    "https://riot-geo.pas.si.riotgames.com/pas/v1/product/valorant",
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"id_token": id_token or ""},
-                ) as r:
-                    if r.status == 200:
-                        geo_data = await r.json()
-                        region = geo_data.get("affinities", {}).get("live", "kr")
-                        shard_map = {
-                            "ap": "ap", "kr": "kr", "eu": "eu", "na": "na",
-                            "br": "na", "latam": "na", "pbe": "na",
-                        }
-                        return region, shard_map.get(region, "kr")
-                    return "kr", "kr"
+            await save_user(
+                discord_id=str(interaction.user.id),
+                puuid=puuid,
+                region=region,
+                shard=shard,
+                access_token=access_token,
+                entitlements_token=entitlements_token,
+                cookies="{}",
+            )
 
-        region, shard = run_async(get_region())
+            await interaction.followup.send(
+                "✅ 로그인 성공! `/상점`으로 오늘의 상점을 확인해보세요.",
+                ephemeral=True,
+            )
 
-        # DB에 저장
-        run_async(save_user(
-            discord_id=session["discord_id"],
-            puuid=puuid,
-            region=region,
-            shard=shard,
-            access_token=access_token,
-            entitlements_token=entitlements_token,
-            cookies="{}",  # 리다이렉트 방식에서는 쿠키 없음
-        ))
-        run_async(delete_login_session(state))
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ 인증 중 오류가 발생했어요: {str(e)}",
+                ephemeral=True,
+            )
 
-        return jsonify({"success": True})
+    @app_commands.command(name="상점", description="오늘의 발로란트 스킨 상점을 확인합니다.")
+    async def store(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-@app.route("/redirect")
-def riot_redirect():
-    """Riot 리다이렉트 수신 - callback으로 전달"""
-    return render_template("callback.html")
+        user = await get_user(str(interaction.user.id))
+        if not user:
+            await interaction.followup.send(
+                "❌ 로그인이 필요해요. `/로그인`으로 먼저 계정을 연동해주세요.",
+            )
+            return
+
+        try:
+            storefront = await get_storefront(
+                user["access_token"],
+                user["entitlements_token"],
+                user["puuid"],
+                user["shard"],
+            )
+
+            daily, remaining = parse_daily_store(storefront)
+
+            hours = remaining // 3600
+            minutes = (remaining % 3600) // 60
+
+            embeds = []
+
+            header_embed = discord.Embed(
+                title="🛒 오늘의 상점",
+                description=f"갱신까지 **{hours}시간 {minutes}분** 남았어요.",
+                color=discord.Color.red(),
+            )
+            embeds.append(header_embed)
+
+            for item in daily:
+                skin = await get_skin_info(item["offer_id"])
+                cost_str = f"{item['cost']:,} VP"
+                skin_embed = discord.Embed(
+                    title=f"{skin['name']}",
+                    description=f"💰 {cost_str} | 등급: {skin['tier_name']}",
+                    color=skin.get("color", 0x808080),
+                )
+                if skin["icon"]:
+                    skin_embed.set_thumbnail(url=skin["icon"])
+                embeds.append(skin_embed)
+
+            await interaction.followup.send(embeds=embeds)
+
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ 상점 조회 중 오류가 발생했어요: {str(e)}",
+            )
+
+    @app_commands.command(name="나이트마켓", description="나이트 마켓을 확인합니다.")
+    async def nightmarket(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+
+        user = await get_user(str(interaction.user.id))
+        if not user:
+            await interaction.followup.send(
+                "❌ 로그인이 필요해요. `/로그인`으로 먼저 계정을 연동해주세요.",
+            )
+            return
+
+        try:
+            storefront = await get_storefront(
+                user["access_token"],
+                user["entitlements_token"],
+                user["puuid"],
+                user["shard"],
+            )
+
+            night = parse_night_market(storefront)
+            if not night:
+                await interaction.followup.send(
+                    "🌙 현재 나이트 마켓이 열려있지 않아요.",
+                )
+                return
+
+            embed = discord.Embed(
+                title="🌙 나이트 마켓",
+                color=discord.Color.dark_purple(),
+            )
+
+            for item in night:
+                skin = await get_skin_info(item["offer_id"])
+                embed.add_field(
+                    name=f"{skin['name']}",
+                    value=(
+                        f"~~{item['cost']:,} VP~~ → **{item['discount_cost']:,} VP**\n"
+                        f"🏷️ {item['discount_percent']}% 할인 | 등급: {skin['tier_name']}"
+                    ),
+                    inline=False,
+                )
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ 나이트 마켓 조회 중 오류가 발생했어요: {str(e)}",
+            )
+
+    @app_commands.command(name="로그아웃", description="발로란트 계정 연동을 해제합니다.")
+    async def logout(self, interaction: discord.Interaction):
+        user = await get_user(str(interaction.user.id))
+        if not user:
+            await interaction.response.send_message(
+                "❌ 로그인되어 있지 않아요.",
+                ephemeral=True,
+            )
+            return
+
+        await delete_user(str(interaction.user.id))
+        await interaction.response.send_message(
+            "✅ 로그아웃되었어요. 저장된 인증 정보가 모두 삭제되었어요.",
+            ephemeral=True,
+        )
 
 
-if __name__ == "__main__":
-    app.run(
-        host=os.getenv("WEB_HOST", "0.0.0.0"),
-        port=int(os.getenv("WEB_PORT", 80)),
-        debug=False,
-    )
+async def setup(bot):
+    await bot.add_cog(Valorant(bot))
