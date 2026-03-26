@@ -47,47 +47,14 @@ class Valorant(commands.Cog):
             )
             return
 
-        # 로그인 세션 생성
-        token = str(uuid.uuid4())
-        expires = datetime.now(timezone.utc) + timedelta(minutes=10)
-        await save_login_session(token, str(interaction.user.id), expires.isoformat())
-
-        # 북마클릿 코드 생성
-        server_url = WEB_BASE_URL
-        bookmarklet = (
-            f"javascript:void((function(){{"
-            f"const h=window.location.hash.substring(1);"
-            f"const p=new URLSearchParams(h);"
-            f"const t=p.get('access_token');"
-            f"const i=p.get('id_token');"
-            f"if(!t){{alert('토큰을 찾을 수 없어요. Riot 로그인 후 이 페이지에서 실행해주세요.');return;}}"
-            f"fetch('{server_url}/api/save-token',{{"
-            f"method:'POST',"
-            f"headers:{{'Content-Type':'application/json'}},"
-            f"body:JSON.stringify({{access_token:t,id_token:i,session_token:'{token}'}})"
-            f"}}).then(r=>r.json()).then(d=>{{"
-            f"if(d.success)alert('✅ 로그인 성공! 디스코드에서 /상점을 사용해보세요.');"
-            f"else alert('❌ 오류: '+d.error);"
-            f"}}).catch(e=>alert('❌ 서버 연결 실패: '+e));"
-            f"}})())"
-        )
-
         embed = discord.Embed(
             title="🔐 발로란트 로그인",
             description=(
-                "**처음 1회만 설정하면 돼요!**\n\n"
-                "**1단계:** 아래 북마클릿 코드를 복사해서 브라우저 즐겨찾기에 추가하세요.\n"
-                "  → 즐겨찾기 바 우클릭 → '페이지 추가' → 이름: `염버니 로그인` → URL에 아래 코드 붙여넣기\n\n"
-                "**2단계:** 아래 로그인 링크를 클릭해서 Riot 계정으로 로그인하세요.\n\n"
-                "**3단계:** 로그인 후 빈 페이지가 뜨면 즐겨찾기 바에서 `염버니 로그인`을 클릭하세요.\n\n"
-                "**10분** 내에 완료해주세요."
+                "**1단계:** 아래 링크에서 라이엇 계정으로 로그인하세요.\n"
+                "**2단계:** 로그인 후 빈 페이지가 뜨면, **주소창의 URL 전체**를 복사하세요.\n"
+                "**3단계:** `/인증` 명령어에 복사한 URL을 붙여넣으세요."
             ),
             color=discord.Color.red(),
-        )
-        embed.add_field(
-            name="📋 북마클릿 코드 (복사해서 즐겨찾기 URL에 붙여넣기)",
-            value=f"```\n{bookmarklet}\n```",
-            inline=False,
         )
         embed.add_field(
             name="🔗 로그인 링크",

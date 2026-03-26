@@ -46,14 +46,12 @@ def save_token():
         import certifi
         import ssl as _ssl
 
-        # JWT에서 puuid 추출
         payload = access_token.split(".")[1]
         decoded = json.loads(urlsafe_b64decode(f"{payload}==="))
         puuid = decoded.get("sub")
 
         ssl_ctx = _ssl.create_default_context(cafile=certifi.where())
 
-        # entitlements token
         async def get_entitlements():
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_ctx)) as s:
                 async with s.post(
@@ -68,7 +66,6 @@ def save_token():
 
         entitlements_token = run_async(get_entitlements())
 
-        # region/shard
         async def get_region():
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_ctx)) as s:
                 async with s.put(
@@ -91,7 +88,6 @@ def save_token():
 
         region, shard = run_async(get_region())
 
-        # DB 저장
         run_async(save_user(
             discord_id=session["discord_id"],
             puuid=puuid,
