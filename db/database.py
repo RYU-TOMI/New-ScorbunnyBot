@@ -22,7 +22,6 @@ def decrypt(text: str) -> str:
 
 
 async def init_db():
-    """DB 초기화 - 테이블 생성"""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -33,9 +32,15 @@ async def init_db():
                 access_token TEXT,
                 entitlements_token TEXT,
                 cookies TEXT,
+                expires_at DATETIME,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # 기존 테이블에 컬럼 없으면 추가
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN expires_at DATETIME")
+        except Exception:
+            pass
         await db.execute("""
             CREATE TABLE IF NOT EXISTS login_sessions (
                 token TEXT PRIMARY KEY,
@@ -47,18 +52,19 @@ async def init_db():
 
 
 async def save_user(discord_id: str, puuid: str, region: str, shard: str,
-                    access_token: str, entitlements_token: str, cookies: str):
-    """유저 인증 정보 저장 (암호화)"""
+                    access_token: str, entitlements_token: str, cookies: str,
+                    expires_at: str = None):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
             INSERT OR REPLACE INTO users 
-            (discord_id, puuid, region, shard, access_token, entitlements_token, cookies, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            (discord_id, puuid, region, shard, access_token, entitlements_token, cookies, expires_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """, (
             discord_id, puuid, region, shard,
             encrypt(access_token),
             encrypt(entitlements_token),
-            encrypt(cookies)
+            encrypt(cookies),
+            expires_at
         ))
         await db.commit()
 
@@ -81,6 +87,7 @@ async def get_user(discord_id: str) -> dict | None:
                 "access_token": decrypt(row["access_token"]),
                 "entitlements_token": decrypt(row["entitlements_token"]),
                 "cookies": decrypt(row["cookies"]),
+                "expires_at": row["expires_at"],
                 "updated_at": row["updated_at"]
             }
 

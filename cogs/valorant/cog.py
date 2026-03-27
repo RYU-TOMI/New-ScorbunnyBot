@@ -51,7 +51,7 @@ class Valorant(commands.Cog):
             title="🔐 발로란트 로그인",
             description=(
                 "**1단계:** 아래 링크에서 라이엇 계정으로 로그인하세요.\n"
-                "**2단계:** 로그인 후 빈 페이지가 뜨면, **주소창의 URL 전체**를 복사하세요.\n"
+                "**2단계:** 로그인 후 빈 페이지(404)가 뜨면, **주소창의 URL 전체**를 복사하세요.\n"
                 "**3단계:** `/인증` 명령어에 복사한 URL을 붙여넣으세요."
             ),
             color=discord.Color.red(),
@@ -132,6 +132,7 @@ class Valorant(commands.Cog):
                 except Exception:
                     pass
 
+            expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()        
             await save_user(
                 discord_id=str(interaction.user.id),
                 puuid=puuid,
@@ -140,6 +141,7 @@ class Valorant(commands.Cog):
                 access_token=access_token,
                 entitlements_token=entitlements_token,
                 cookies="{}",
+                expires_at=expires_at
             )
 
             await interaction.followup.send(
@@ -163,6 +165,14 @@ class Valorant(commands.Cog):
                 "❌ 로그인이 필요해요. `/로그인`으로 먼저 계정을 연동해주세요.",
             )
             return
+        
+        if user.get("expires_at"):
+            expires_at = datetime.fromisoformat(user["expires_at"])
+            if datetime.now(timezone.utc) >= expires_at:
+                await interaction.followup.send(
+                    "⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요."
+                )
+                return
 
         try:
             storefront = await get_storefront(
@@ -215,6 +225,14 @@ class Valorant(commands.Cog):
                 "❌ 로그인이 필요해요. `/로그인`으로 먼저 계정을 연동해주세요.",
             )
             return
+        
+        if user.get("expires_at"):
+            expires_at = datetime.fromisoformat(user["expires_at"])
+            if datetime.now(timezone.utc) >= expires_at:
+                await interaction.followup.send(
+                "⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요."
+                )
+                return
 
         try:
             storefront = await get_storefront(
