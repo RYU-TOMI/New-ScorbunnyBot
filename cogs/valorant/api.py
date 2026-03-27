@@ -117,6 +117,7 @@ async def authenticate(username: str, password: str) -> dict:
         ) as r:
             data = await r.json()
             cookies = _parse_cookies(r)
+            print(f"인증 응답: {data}")
 
         if data['type'] == 'multifactor':
             return {'type': 'multifactor', 'cookies': cookies, 'email': data['multifactor'].get('email', '')}
