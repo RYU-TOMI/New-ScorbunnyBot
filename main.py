@@ -18,8 +18,8 @@ async def load_extensions():
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
-    print(f"{bot.user} 로그인 완료")
+    synced = await bot.tree.sync()
+    print(f"{bot.user} 로그인 완료 - 커맨드 {len(synced)}개 동기화됨")
 
 async def main():
     async with bot:

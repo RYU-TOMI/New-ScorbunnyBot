@@ -1,34 +1,20 @@
 import discord
-import uuid
+import json
+import asyncio
 from datetime import datetime, timedelta, timezone
 from discord import app_commands
 from discord.ext import commands
-from base64 import urlsafe_b64decode
-from urllib.parse import parse_qsl, urlsplit
-import json
-import aiohttp
-import certifi
-import ssl as _ssl
 
-from db.database import (
-    get_user, save_user, delete_user,
-    save_login_session, init_db
+from db.database import get_user, save_user, delete_user, init_db
+from .api import (
+    authenticate, authenticate_2fa, refresh_token,
+    get_entitlements_token, get_region, get_storefront,
+    parse_daily_store, parse_night_market, _decode_puuid
 )
-from .api import get_storefront, parse_daily_store, parse_night_market, REGION_SHARD_MAP
 from .assets import get_skin_info
 
-import os
-WEB_BASE_URL = os.getenv("WEB_BASE_URL", "http://localhost")
-
-RIOT_LOGIN_URL = (
-    "https://auth.riotgames.com/authorize"
-    "?redirect_uri=https%3A%2F%2Fplayvalorant.com%2Fopt_in"
-    "&client_id=play-valorant-web-prod"
-    "&response_type=token%20id_token"
-    "&nonce=1"
-    "&scope=account%20openid"
-)
-
+# 2FA 대기 중인 유저 임시 저장
+pending_2fa: dict[str, dict] = {}
 
 class Valorant(commands.Cog):
     def __init__(self, bot):
@@ -37,102 +23,91 @@ class Valorant(commands.Cog):
     async def cog_load(self):
         await init_db()
 
+    async def _get_valid_tokens(self, user: dict) -> dict | None:
+        """토큰 만료 시 자동 갱신. 실패 시 None 반환"""
+        expires_at = user.get("expires_at")
+        if expires_at:
+            expires_dt = datetime.fromisoformat(expires_at)
+            if datetime.now(timezone.utc) < expires_dt:
+                return user  # 아직 유효
+
+        # 토큰 만료 → cookies로 자동 갱신
+        try:
+            cookies = json.loads(user["cookies"])
+            result = await refresh_token(cookies)
+
+            expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+            await save_user(
+                discord_id=user["discord_id"],
+                puuid=user["puuid"],
+                region=user["region"],
+                shard=user["shard"],
+                access_token=result["access_token"],
+                entitlements_token=result["entitlements_token"],
+                cookies=json.dumps(result["cookies"]),
+                expires_at=expires_at,
+            )
+            user["access_token"] = result["access_token"]
+            user["entitlements_token"] = result["entitlements_token"]
+            return user
+        except Exception as e:
+            print(f"토큰 갱신 실패: {e}")
+            return None
+
     @app_commands.command(name="로그인", description="발로란트 계정을 연동합니다.")
-    async def login(self, interaction: discord.Interaction):
-        user = await get_user(str(interaction.user.id))
-        if user:
-            await interaction.response.send_message(
-                "✅ 이미 로그인되어 있어요. 다시 로그인하려면 `/로그아웃` 후 다시 시도해주세요.",
-                ephemeral=True,
+    async def login(self, interaction: discord.Interaction, username: str, password: str):
+        print("로그인 함수 호출됨")
+        await interaction.response.defer(ephemeral=True)
+        print("defer 완료")
+
+        try:
+            existing = await asyncio.wait_for(get_user(str(interaction.user.id)), timeout=10.0)
+            print(f"get_user 완료: {existing}")
+        except asyncio.TimeoutError:
+            print("get_user 타임아웃!")
+            await interaction.followup.send("❌ DB 응답 시간 초과", ephemeral=True)
+            return
+        
+        print(f"로그인 결과 : {result['type']}")
+
+        if result['type'] == 'multifactor':
+            # 2FA 필요 → 임시 저장
+            pending_2fa[str(interaction.user.id)] = {
+                'cookies': result['cookies'],
+            }
+            email = result.get('email', '')
+            await interaction.followup.send(
+                f"📧 2FA 인증이 필요해요. `{email}`로 전송된 코드를 `/인증코드` 명령어로 입력해주세요.",
+                ephemeral=True
             )
             return
 
-        embed = discord.Embed(
-            title="🔐 발로란트 로그인",
-            description=(
-                "**1단계:** 아래 링크에서 라이엇 계정으로 로그인하세요.\n"
-                "**2단계:** 로그인 후 빈 페이지(404)가 뜨면, **주소창의 URL 전체**를 복사하세요.\n"
-                "**3단계:** `/인증` 명령어에 복사한 URL을 붙여넣으세요."
-            ),
-            color=discord.Color.red(),
-        )
-        embed.add_field(
-            name="🔗 로그인 링크",
-            value=f"[여기를 클릭하세요]({RIOT_LOGIN_URL})",
-            inline=False,
-        )
-        embed.set_footer(text="⚠️ 비밀번호는 Riot 공식 페이지에서만 입력됩니다.")
+        await self._save_login(interaction, result['access_token'], result['id_token'], result['cookies'])
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @app_commands.command(name="인증", description="로그인 후 복사한 URL을 입력합니다.")
-    async def verify(self, interaction: discord.Interaction, url: str):
+    @app_commands.command(name="인증코드", description="2FA 코드를 입력합니다.")
+    async def verify_2fa(self, interaction: discord.Interaction, 코드: str):
         await interaction.response.defer(ephemeral=True)
 
-        existing = await get_user(str(interaction.user.id))
-        if existing:
-            await interaction.followup.send(
-                "✅ 이미 로그인되어 있어요. `/로그아웃` 후 다시 시도해주세요.",
-                ephemeral=True,
-            )
+        pending = pending_2fa.get(str(interaction.user.id))
+        if not pending:
+            await interaction.followup.send("❌ 진행 중인 로그인이 없어요. `/로그인`을 먼저 해주세요.", ephemeral=True)
             return
 
         try:
-            if "#" not in url:
-                await interaction.followup.send(
-                    "❌ 올바른 URL이 아니에요. 로그인 후 리다이렉트된 주소창의 URL 전체를 복사해주세요.",
-                    ephemeral=True,
-                )
-                return
+            result = await authenticate_2fa(코드, pending['cookies'])
+            del pending_2fa[str(interaction.user.id)]
+            await self._save_login(interaction, result['access_token'], result['id_token'], result['cookies'])
+        except Exception as e:
+            await interaction.followup.send(f"❌ 2FA 인증 실패: {str(e)}", ephemeral=True)
 
-            fragment = urlsplit(url).fragment
-            params = dict(parse_qsl(fragment))
-            access_token = params.get("access_token")
-            id_token = params.get("id_token")
+    async def _save_login(self, interaction: discord.Interaction, access_token: str, id_token: str, cookies: dict):
+        """로그인 성공 후 DB 저장"""
+        try:
+            puuid = _decode_puuid(access_token)
+            entitlements_token = await get_entitlements_token(access_token)
+            region, shard = await get_region(access_token, id_token)
+            expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
 
-            if not access_token:
-                await interaction.followup.send(
-                    "❌ URL에서 토큰을 찾을 수 없어요. 다시 시도해주세요.",
-                    ephemeral=True,
-                )
-                return
-
-            payload = access_token.split(".")[1]
-            decoded = json.loads(urlsafe_b64decode(f"{payload}==="))
-            puuid = decoded.get("sub")
-
-            ssl_ctx = _ssl.create_default_context(cafile=certifi.where())
-            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_ctx)) as session:
-                async with session.post(
-                    "https://entitlements.auth.riotgames.com/api/token/v1",
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json",
-                    },
-                    json={},
-                ) as resp:
-                    ent_data = await resp.json()
-                    entitlements_token = ent_data["entitlements_token"]
-
-                region = "kr"
-                shard = "kr"
-                try:
-                    async with session.put(
-                        "https://riot-geo.pas.si.riotgames.com/pas/v1/product/valorant",
-                        headers={
-                            "Authorization": f"Bearer {access_token}",
-                            "Content-Type": "application/json",
-                        },
-                        json={"id_token": id_token or ""},
-                    ) as resp:
-                        if resp.status == 200:
-                            geo_data = await resp.json()
-                            region = geo_data.get("affinities", {}).get("live", "kr")
-                            shard = REGION_SHARD_MAP.get(region, "kr")
-                except Exception:
-                    pass
-
-            expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()        
             await save_user(
                 discord_id=str(interaction.user.id),
                 puuid=puuid,
@@ -140,68 +115,50 @@ class Valorant(commands.Cog):
                 shard=shard,
                 access_token=access_token,
                 entitlements_token=entitlements_token,
-                cookies="{}",
-                expires_at=expires_at
+                cookies=json.dumps(cookies),
+                expires_at=expires_at,
             )
-
             await interaction.followup.send(
-                "✅ 로그인 성공! `/상점`으로 오늘의 상점을 확인해보세요.",
-                ephemeral=True,
+                "✅ 로그인 성공! `/상점`으로 오늘의 상점을 확인해보세요.", ephemeral=True
             )
-
         except Exception as e:
-            await interaction.followup.send(
-                f"❌ 인증 중 오류가 발생했어요: {str(e)}",
-                ephemeral=True,
-            )
+            await interaction.followup.send(f"❌ 저장 중 오류가 발생했어요: {str(e)}", ephemeral=True)
 
     @app_commands.command(name="상점", description="오늘의 발로란트 스킨 상점을 확인합니다.")
     async def store(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=False)
+        await interaction.response.defer()
 
         user = await get_user(str(interaction.user.id))
         if not user:
+            await interaction.followup.send("❌ 로그인이 필요해요. `/로그인`으로 먼저 계정을 연동해주세요.")
+            return
+
+        user = await self._get_valid_tokens(user)
+        if not user:
             await interaction.followup.send(
-                "❌ 로그인이 필요해요. `/로그인`으로 먼저 계정을 연동해주세요.",
+                "⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요."
             )
             return
-        
-        if user.get("expires_at"):
-            expires_at = datetime.fromisoformat(user["expires_at"])
-            if datetime.now(timezone.utc) >= expires_at:
-                await interaction.followup.send(
-                    "⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요."
-                )
-                return
 
         try:
             storefront = await get_storefront(
-                user["access_token"],
-                user["entitlements_token"],
-                user["puuid"],
-                user["shard"],
+                user["access_token"], user["entitlements_token"], user["puuid"], user["shard"]
             )
-
             daily, remaining = parse_daily_store(storefront)
-
             hours = remaining // 3600
             minutes = (remaining % 3600) // 60
 
-            embeds = []
-
-            header_embed = discord.Embed(
+            embeds = [discord.Embed(
                 title="🛒 오늘의 상점",
                 description=f"갱신까지 **{hours}시간 {minutes}분** 남았어요.",
                 color=discord.Color.red(),
-            )
-            embeds.append(header_embed)
+            )]
 
             for item in daily:
                 skin = await get_skin_info(item["offer_id"])
-                cost_str = f"{item['cost']:,} VP"
                 skin_embed = discord.Embed(
-                    title=f"{skin['name']}",
-                    description=f"💰 {cost_str} | 등급: {skin['tier_name']}",
+                    title=skin['name'],
+                    description=f"💰 {item['cost']:,} VP | 등급: {skin['tier_name']}",
                     color=skin.get("color", 0x808080),
                 )
                 if skin["icon"]:
@@ -213,93 +170,76 @@ class Valorant(commands.Cog):
         except Exception as e:
             error_msg = str(e)
             if "400" in error_msg or "401" in error_msg:
-                await interaction.followup.send(
-                    "⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요."
-                )
+                await interaction.followup.send("⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요.")
             else:
-                await interaction.followup.send(
-                    f"❌ 상점 조회 중 오류가 발생했어요: {str(e)}",
-                )
+                await interaction.followup.send(f"❌ 상점 조회 중 오류가 발생했어요: {error_msg}")
 
     @app_commands.command(name="야시장", description="야시장을 확인합니다.")
     async def nightmarket(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=False)
+        await interaction.response.defer()
 
         user = await get_user(str(interaction.user.id))
         if not user:
-            await interaction.followup.send(
-                "❌ 로그인이 필요해요. `/로그인`으로 먼저 계정을 연동해주세요.",
-            )
+            await interaction.followup.send("❌ 로그인이 필요해요. `/로그인`으로 먼저 계정을 연동해주세요.")
             return
-        
-        if user.get("expires_at"):
-            expires_at = datetime.fromisoformat(user["expires_at"])
-            if datetime.now(timezone.utc) >= expires_at:
-                await interaction.followup.send(
-                "⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요."
-                )
-                return
+
+        user = await self._get_valid_tokens(user)
+        if not user:
+            await interaction.followup.send("⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요.")
+            return
 
         try:
             storefront = await get_storefront(
-                user["access_token"],
-                user["entitlements_token"],
-                user["puuid"],
-                user["shard"],
+                user["access_token"], user["entitlements_token"], user["puuid"], user["shard"]
             )
-
             night = parse_night_market(storefront)
             if not night:
-                await interaction.followup.send(
-                    "🌙 현재 야시장이 열려있지 않아요.",
-                )
+                await interaction.followup.send("🌙 현재 야시장이 열려있지 않아요.")
                 return
 
-            embed = discord.Embed(
-                title="🌙 야시장",
-                color=discord.Color.dark_purple(),
-            )
-
+            embed = discord.Embed(title="🌙 야시장", color=discord.Color.dark_purple())
             for item in night:
                 skin = await get_skin_info(item["offer_id"])
                 embed.add_field(
-                    name=f"{skin['name']}",
+                    name=skin['name'],
                     value=(
                         f"~~{item['cost']:,} VP~~ → **{item['discount_cost']:,} VP**\n"
                         f"🏷️ {item['discount_percent']}% 할인 | 등급: {skin['tier_name']}"
                     ),
                     inline=False,
                 )
-
             await interaction.followup.send(embed=embed)
 
         except Exception as e:
             error_msg = str(e)
             if "400" in error_msg or "401" in error_msg:
-                await interaction.followup.send(
-                    "⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요."
-                )
+                await interaction.followup.send("⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요.")
             else:
-                await interaction.followup.send(
-                    f"❌ 야시장 조회 중 오류가 발생했어요: {str(e)}",
-                )
+                await interaction.followup.send(f"❌ 야시장 조회 중 오류가 발생했어요: {error_msg}")
 
     @app_commands.command(name="로그아웃", description="발로란트 계정 연동을 해제합니다.")
     async def logout(self, interaction: discord.Interaction):
         user = await get_user(str(interaction.user.id))
         if not user:
-            await interaction.response.send_message(
-                "❌ 로그인되어 있지 않아요.",
-                ephemeral=True,
-            )
+            await interaction.response.send_message("❌ 로그인되어 있지 않아요.", ephemeral=True)
             return
-
         await delete_user(str(interaction.user.id))
         await interaction.response.send_message(
-            "✅ 로그아웃되었어요. 저장된 인증 정보가 모두 삭제되었어요.",
-            ephemeral=True,
+            "✅ 로그아웃됐어요. 저장된 인증 정보가 모두 삭제됐어요.", ephemeral=True
         )
 
+    @app_commands.command(name="디비테스트", description="DB 테스트")
+    async def db_test(self, interaction: discord.Interaction):
+        print("디비테스트 시작")
+        await interaction.response.defer(ephemeral=True)
+        print("defer 완료")
+        try:
+            result = await get_user("123")
+            print(f"get_user 결과: {result}")
+            await interaction.followup.send(f"결과: {result}")
+        except Exception as e:
+            print(f"에러: {e}")
+            await interaction.followup.send(f"에러: {e}")
 
 async def setup(bot):
     await bot.add_cog(Valorant(bot))

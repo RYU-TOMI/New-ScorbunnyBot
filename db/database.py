@@ -1,6 +1,8 @@
 import aiosqlite
 import os
 from cryptography.fernet import Fernet
+from dotenv import load_dotenv
+load_dotenv()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "bot.db")
 
@@ -12,13 +14,11 @@ def get_fernet() -> Fernet:
         print(f"⚠️ ENCRYPTION_KEY가 없어요. .env에 아래 키를 추가해주세요:\nENCRYPTION_KEY={key}")
     return Fernet(key.encode() if isinstance(key, str) else key)
 
-fernet = get_fernet()
-
 def encrypt(text: str) -> str:
-    return fernet.encrypt(text.encode()).decode()
+    return get_fernet().encrypt(text.encode()).decode()
 
 def decrypt(text: str) -> str:
-    return fernet.decrypt(text.encode()).decode()
+    return get_fernet().decrypt(text.encode()).decode()
 
 
 async def init_db():
