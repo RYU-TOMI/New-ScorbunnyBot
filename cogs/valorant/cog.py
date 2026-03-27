@@ -211,11 +211,17 @@ class Valorant(commands.Cog):
             await interaction.followup.send(embeds=embeds)
 
         except Exception as e:
-            await interaction.followup.send(
-                f"❌ 상점 조회 중 오류가 발생했어요: {str(e)}",
-            )
+            error_msg = str(e)
+            if "400" in error_msg or "401" in error_msg:
+                await interaction.followup.send(
+                    "⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요."
+                )
+            else:
+                await interaction.followup.send(
+                    f"❌ 상점 조회 중 오류가 발생했어요: {str(e)}",
+                )
 
-    @app_commands.command(name="나이트마켓", description="나이트 마켓을 확인합니다.")
+    @app_commands.command(name="야시장", description="야시장을 확인합니다.")
     async def nightmarket(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
 
@@ -245,12 +251,12 @@ class Valorant(commands.Cog):
             night = parse_night_market(storefront)
             if not night:
                 await interaction.followup.send(
-                    "🌙 현재 나이트 마켓이 열려있지 않아요.",
+                    "🌙 현재 야시장이 열려있지 않아요.",
                 )
                 return
 
             embed = discord.Embed(
-                title="🌙 나이트 마켓",
+                title="🌙 야시장",
                 color=discord.Color.dark_purple(),
             )
 
@@ -268,9 +274,15 @@ class Valorant(commands.Cog):
             await interaction.followup.send(embed=embed)
 
         except Exception as e:
-            await interaction.followup.send(
-                f"❌ 나이트 마켓 조회 중 오류가 발생했어요: {str(e)}",
-            )
+            error_msg = str(e)
+            if "400" in error_msg or "401" in error_msg:
+                await interaction.followup.send(
+                    "⚠️ 토큰이 만료됐어요. `/로그아웃` 후 `/로그인`으로 다시 연동해주세요."
+                )
+            else:
+                await interaction.followup.send(
+                    f"❌ 야시장 조회 중 오류가 발생했어요: {str(e)}",
+                )
 
     @app_commands.command(name="로그아웃", description="발로란트 계정 연동을 해제합니다.")
     async def logout(self, interaction: discord.Interaction):
