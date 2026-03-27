@@ -60,18 +60,25 @@ class Valorant(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         print("defer 완료")
 
-        try:
-            existing = await asyncio.wait_for(get_user(str(interaction.user.id)), timeout=10.0)
-            print(f"get_user 완료: {existing}")
-        except asyncio.TimeoutError:
-            print("get_user 타임아웃!")
-            await interaction.followup.send("❌ DB 응답 시간 초과", ephemeral=True)
+        existing = await get_user(str(interaction.user.id))
+        print(f"get_user 완료: {existing}")
+
+        if existing:
+            await interaction.followup.send(
+                "✅ 이미 로그인되어 있어요. `/로그아웃` 후 다시 시도해주세요.", ephemeral=True
+            )
             return
-        
-        print(f"로그인 결과 : {result['type']}")
+
+        print("authenticate 호출 전")
+        try:
+            result = await authenticate(username, password)
+            print(f"authenticate 완료: {result['type']}")
+        except Exception as e:
+            print(f"로그인 오류: {e}")
+            await interaction.followup.send(f"❌ 로그인 실패: {str(e)}", ephemeral=True)
+            return
 
         if result['type'] == 'multifactor':
-            # 2FA 필요 → 임시 저장
             pending_2fa[str(interaction.user.id)] = {
                 'cookies': result['cookies'],
             }

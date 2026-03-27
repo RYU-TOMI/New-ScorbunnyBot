@@ -80,6 +80,8 @@ def _decode_puuid(access_token: str) -> str:
 
 async def authenticate(username: str, password: str) -> dict:
     """아이디/비밀번호로 로그인. cookies + tokens 반환"""
+    print(f"authenticate 함수 진입")
+    print(f"인증 시작: {username}")
     headers = {
         'Content-Type': 'application/json',
         'User-Agent': RIOT_USER_AGENT,
