@@ -7,6 +7,9 @@ class MusicQueue:
         self.loop = False
         self.loop_current = False
         self.current = None
+        self.autoplay = False
+        self.last_video_id = None
+        self.played_ids = []  # 재생한 곡 ID 목록
 
     def add(self, url: str, title: str, requester: str = None) -> bool:
         """큐에 곡 추가. 성공 여부 반환"""

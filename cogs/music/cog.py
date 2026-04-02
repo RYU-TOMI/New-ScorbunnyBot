@@ -3,6 +3,8 @@ import asyncio
 from discord import app_commands
 from discord.ext import commands
 
+from .recommend import get_recommendations, clear_pool
+
 from .player import YTDLSource
 from .queue import QueueManager
 from .views import SearchView
@@ -19,19 +21,47 @@ class Music(commands.Cog):
 
     async def play_next(self, guild: discord.Guild, channel: discord.TextChannel):
         queue = self.get_queue(guild.id)
+        print(f"play_next 호출 - 대기열: {len(queue)}, autoplay: {queue.autoplay}, last_video_id: {queue.last_video_id}")
         vc = guild.voice_client
 
         if not vc:
             return
 
         next_track = queue.next()
-        if not next_track:
-            return
 
-        url, title, requester = next_track
+        if not next_track:
+            if queue.autoplay and queue.last_video_id:
+                print(f"추천 곡 가져오는 중... video_id: {queue.last_video_id}")
+                recommendations = await get_recommendations(
+                    queue.last_video_id, 
+                    limit=1,
+                    played_ids=queue.played_ids,
+                    guild_id=guild.id
+                )
+                print(f"추천 결과: {recommendations}")
+                if recommendations:
+                    rec = recommendations[0]
+                    print(f"추천 곡 대기열 추가: {rec['title']}")
+                    queue.add(rec['url'], rec['title'])
+                    next_track = queue.next()
+                    print(f"next_track: {next_track}")
+                    await channel.send(f"🎵 자동재생: **{rec['title']}**")
+                else:
+                    print("추천 곡 없음")
+                    return
+            else:
+                return
+
+        url, title, *_ = next_track
         try:
             player = await YTDLSource.from_url(url, loop=self.bot.loop)
-            queue.current = (url, title, requester)
+            queue.current = (url, title)
+            queue.last_video_id = player.id
+            queue.last_title = player.title
+            if player.id not in queue.played_ids:
+                queue.played_ids.append(player.id)
+            if len(queue.played_ids) > 10:
+                queue.played_ids.pop(0)
 
             def after_playing(error):
                 if error:
@@ -41,7 +71,7 @@ class Music(commands.Cog):
                 )
 
             vc.play(player, after=after_playing)
-            await channel.send(embed=now_playing_embed(player, requester))
+            await channel.send(embed=now_playing_embed(player, guild.me))
         except Exception as e:
             print(f"play_next 오류: {e}")
             await channel.send(embed=error_embed(f"재생 중 오류가 발생했어요: {str(e)}"))
@@ -86,6 +116,8 @@ class Music(commands.Cog):
 
         if not vc.is_playing():
             queue.current = (url, player.title, interaction.user)
+            queue.last_video_id = player.id
+            
             vc.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(
                 self.play_next(interaction.guild, interaction.channel), self.bot.loop
             ))
@@ -96,6 +128,13 @@ class Music(commands.Cog):
                 return
             await interaction.followup.send(embed=queue_embed(queue.items(), queue.max_size, f"{player.title} 이 대기열에 추가됐어요!"))
 
+    @app_commands.command(name="자동재생", description="대기열이 비면 자동으로 추천 곡을 재생합니다.")
+    async def autoplay(self, interaction: discord.Interaction):
+        queue = self.get_queue(interaction.guild.id)
+        queue.autoplay = not queue.autoplay
+        status = "활성화" if queue.autoplay else "비활성화"
+        await interaction.response.send_message(f"🐰 자동재생 모드가 {status}됐어요.")
+    
     @app_commands.command(name="검색", description="유튜브에서 음악을 검색합니다.")
     async def search(self, interaction: discord.Interaction, 검색어: str):
         if not interaction.user.voice:
@@ -141,6 +180,7 @@ class Music(commands.Cog):
 
         if not vc.is_playing():
             queue.current = (selected['url'], player.title, interaction.user)
+            queue.last_video_id = player.id
             vc.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(
                 self.play_next(interaction.guild, interaction.channel), self.bot.loop
             ))
@@ -223,7 +263,8 @@ class Music(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         queue = self.get_queue(interaction.guild.id)
         queue.clear()
-        queue_manager.remove(interaction.guild.id)
+        queue.autoplay = False  # 자동재생도 끄기
+        clear_pool(interaction.guild.id)
         if vc.is_playing():
             vc.stop()
         await vc.disconnect()
