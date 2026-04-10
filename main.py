@@ -1,6 +1,7 @@
 import discord
 import asyncio
 import os
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from db.database import init_db

@@ -10,3 +10,4 @@ setup_ytmusic.py
 test_ytmusic.py
 cookies.txt
 test_*.py
+bot_backup.db
