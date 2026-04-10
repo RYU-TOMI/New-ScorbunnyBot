@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 *.pyo
 db/bot.db
+oauth.json
+browser.json
+setup_ytmusic.py
+test_ytmusic.py
+cookies.txt
+test_*.py

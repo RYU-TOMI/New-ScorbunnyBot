@@ -3,51 +3,9 @@ import aiohttp
 SKINS_URL = "https://valorant-api.com/v1/weapons/skins"
 TIERS_URL = "https://valorant-api.com/v1/contenttiers"
 
-# 캐시 (봇 실행 중 한 번만 로드)
 _skins_cache: dict = {}
 _tiers_cache: dict = {}
 
-
-async def load_skins():
-    """스킨 데이터 로드 및 캐시"""
-    global _skins_cache
-
-    if _skins_cache:
-        return
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get(SKINS_URL, params={"language": "ko-KR"}) as resp:
-            data = await resp.json()
-
-            for skin in data.get("data", []):
-                for level in skin.get("levels", []):
-                    _skins_cache[level["uuid"].lower()] = {
-                        "name": skin.get("displayName", "알 수 없는 스킨"),
-                        "icon": level.get("displayIcon"),
-                        "tier_id": skin.get("contentTierUuid"),
-                    }
-
-
-async def load_tiers():
-    """등급(티어) 데이터 로드 및 캐시"""
-    global _tiers_cache
-
-    if _tiers_cache:
-        return
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get(TIERS_URL) as resp:
-            data = await resp.json()
-
-            for tier in data.get("data", []):
-                _tiers_cache[tier["uuid"].lower()] = {
-                    "name": tier.get("devName", "Unknown"),
-                    "icon": tier.get("displayIcon"),
-                    "color": tier.get("highlightColor"),
-                }
-
-
-# 티어별 색상 (임베드용 hex)
 TIER_COLORS = {
     "Select": 0x5A9FE2,
     "Deluxe": 0x009B82,
@@ -55,6 +13,40 @@ TIER_COLORS = {
     "Ultra": 0xF5E05B,
     "Exclusive": 0xF5955B,
 }
+
+
+async def _fetch_json(url: str, **params) -> dict:
+    """공통 GET 요청"""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params or None) as resp:
+            return await resp.json()
+
+
+async def load_skins():
+    """스킨 데이터 로드 및 캐시"""
+    if _skins_cache:
+        return
+    data = await _fetch_json(SKINS_URL, language="ko-KR")
+    for skin in data.get("data", []):
+        for level in skin.get("levels", []):
+            _skins_cache[level["uuid"].lower()] = {
+                "name": skin.get("displayName", "알 수 없는 스킨"),
+                "icon": level.get("displayIcon"),
+                "tier_id": skin.get("contentTierUuid"),
+            }
+
+
+async def load_tiers():
+    """등급(티어) 데이터 로드 및 캐시"""
+    if _tiers_cache:
+        return
+    data = await _fetch_json(TIERS_URL)
+    for tier in data.get("data", []):
+        _tiers_cache[tier["uuid"].lower()] = {
+            "name": tier.get("devName", "Unknown"),
+            "icon": tier.get("displayIcon"),
+            "color": tier.get("highlightColor"),
+        }
 
 
 async def get_skin_info(offer_id: str) -> dict:
@@ -65,7 +57,6 @@ async def get_skin_info(offer_id: str) -> dict:
     skin = _skins_cache.get(offer_id.lower(), {})
     tier_id = skin.get("tier_id")
     tier = _tiers_cache.get(tier_id.lower()) if tier_id else None
-
     tier_name = tier["name"] if tier else "Unknown"
 
     return {

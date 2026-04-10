@@ -1,10 +1,11 @@
 import asyncio
+import discord
 import yt_dlp as youtube_dl
 
 YTDL_FORMAT_OPTIONS = {
     'format': 'bestaudio[ext=webm]/bestaudio/best',
     'restrictfilenames': True,
-    'noplaylist': True, 
+    'noplaylist': True,
     'nocheckcertificate': True,
     'ignoreerrors': False,
     'logtostderr': False,
@@ -32,7 +33,6 @@ YTDL_SEARCH_OPTIONS = {
 
 ytdl = youtube_dl.YoutubeDL(YTDL_FORMAT_OPTIONS)
 
-import discord
 
 class YTDLSource(discord.PCMVolumeTransformer):
     def __init__(self, source, *, data, volume=0.5):
@@ -63,18 +63,19 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 result = await loop.run_in_executor(
                     None, lambda: ytdl_search.extract_info(f"ytsearch5:{query}", download=False)
                 )
-            if 'entries' not in result:
+            entries = result.get('entries')
+            if not entries:
                 return None
             return [
                 {
                     'url': f"https://www.youtube.com/watch?v={entry['id']}",
                     'title': entry.get('title', 'N/A'),
                     'duration': (
-                        f"{int(entry.get('duration', 0)) // 60}:{int(entry.get('duration', 0)) % 60:02d}"
+                        f"{int(entry['duration']) // 60}:{int(entry['duration']) % 60:02d}"
                         if entry.get('duration') else "N/A"
                     )
                 }
-                for entry in result['entries']
+                for entry in entries
             ]
         except Exception as e:
             print(f"검색 오류: {e}")
