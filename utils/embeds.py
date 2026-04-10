@@ -1,13 +1,14 @@
 import discord
 
-def now_playing_embed(player, requester: discord.User) -> discord.Embed:
+def now_playing_embed(player, requester: discord.User, autoplay: bool = False) -> discord.Embed:
     """현재 재생 중 embed"""
     embed = discord.Embed(
         title=player.title,
         url=player.url,
-        color=discord.Color.red()
+        color=discord.Color.green() if autoplay else discord.Color.red()
     )
-    embed.set_author(name="▶️ 지금 재생중")
+    author_text = "▶️ 지금 재생중 | 🔄 자동재생 중" if autoplay else "▶️ 지금 재생중"
+    embed.set_author(name=author_text)
     embed.add_field(name="🎧 요청자", value=str(requester), inline=True)
     embed.add_field(
         name="🕐 길이",

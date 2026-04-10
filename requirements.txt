@@ -1,14 +1,13 @@
-discord.py
+discord.py[voice]
 yt-dlp
 PyNaCl
 python-dotenv
-discord.py[voice]
 aiosqlite
 aiohttp
 cryptography
 flask
 certifi
-yt-dlp
-## FFmpeg 설치해줘야 함
 
-## bash -> winget install ffempeg
+# FFmpeg 별도 설치 필요
+# Windows: winget install ffmpeg
+# Ubuntu:  sudo apt install ffmpeg

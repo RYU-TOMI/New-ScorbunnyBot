@@ -1,5 +1,6 @@
 from collections import deque
 
+
 class MusicQueue:
     def __init__(self):
         self._queue = deque()
@@ -7,11 +8,11 @@ class MusicQueue:
         self.loop = False
         self.loop_current = False
         self.current = None
-        self.autoplay = False
+        self.autoplay = True
         self.last_video_id = None
-        self.played_ids = []  # 재생한 곡 ID 목록
+        self.last_title = None
 
-    def add(self, url: str, title: str, requester: str = None) -> bool:
+    def add(self, url: str, title: str, requester=None) -> bool:
         """큐에 곡 추가. 성공 여부 반환"""
         if len(self._queue) >= self.max_size:
             return False
@@ -24,14 +25,6 @@ class MusicQueue:
             return self.current
         if self.loop and self.current:
             self._queue.append(self.current)
-        if self._queue:
-            self.current = self._queue.popleft()
-            return self.current
-        self.current = None
-        return None
-
-    def skip(self):
-        """현재 곡 스킵"""
         if self._queue:
             self.current = self._queue.popleft()
             return self.current
