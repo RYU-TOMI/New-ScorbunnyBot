@@ -6,7 +6,7 @@ from discord.ext import commands
 from .player import YTDLSource
 from .queue import QueueManager
 from .views import SearchView
-from db.database import add_play_history, get_random_from_history, get_history_count, get_history
+from db.database import add_play_history, add_recap_history, get_random_from_history, get_history_count, get_history
 from utils.embeds import now_playing_embed, queue_embed, search_embed, error_embed
 
 queue_manager = QueueManager()
@@ -74,6 +74,12 @@ class Music(commands.Cog):
 
             vc.play(player, after=after_playing)
             asyncio.create_task(add_play_history(
+                guild_id=str(guild.id),
+                video_id=player.id,
+                title=player.title,
+                url=url,
+            ))
+            asyncio.create_task(add_recap_history(
                 guild_id=str(guild.id),
                 video_id=player.id,
                 title=player.title,

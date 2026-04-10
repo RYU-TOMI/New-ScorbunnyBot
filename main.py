@@ -17,7 +17,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 async def load_extensions():
     await bot.load_extension("cogs.music.cog")
+    await bot.load_extension("cogs.music.recap")
     await bot.load_extension("cogs.valorant.cog")
+    await bot.load_extension("cogs.maple.cog")
     print("모든 확장 로드 완료")
 
 

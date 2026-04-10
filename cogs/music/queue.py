@@ -4,7 +4,7 @@ from collections import deque
 class MusicQueue:
     def __init__(self):
         self._queue = deque()
-        self.max_size = 10
+        self.max_size = 30
         self.loop = False
         self.loop_current = False
         self.current = None

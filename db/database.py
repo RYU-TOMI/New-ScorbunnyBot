@@ -55,8 +55,19 @@ async def init_db():
                 last_played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(guild_id, video_id)
             );
+            CREATE TABLE IF NOT EXISTS recap_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id TEXT NOT NULL,
+                video_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                played_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS guild_settings (
+                guild_id TEXT PRIMARY KEY,
+                recap_channel_id TEXT
+            );
         """)
-        # 기존 테이블에 컬럼 없으면 추가
         try:
             await db.execute("ALTER TABLE users ADD COLUMN expires_at DATETIME")
         except Exception:
@@ -204,3 +215,97 @@ async def delete_login_session(token: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM login_sessions WHERE token = ?", (token,))
         await db.commit()
+
+# ── RECAP ──────────────────────────────────────────
+
+async def add_recap_history(guild_id: str, video_id: str, title: str, url: str):
+    """RECAP용 재생 기록 추가 (매 재생마다 기록)"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO recap_history (guild_id, video_id, title, url)
+            VALUES (?, ?, ?, ?)
+        """, (guild_id, video_id, title, url))
+        await db.commit()
+
+
+async def get_recap_stats(guild_id: str, start_date: str, end_date: str) -> dict:
+    """분기별 통계 조회"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # 총 재생 횟수
+        async with db.execute("""
+            SELECT COUNT(*) as total FROM recap_history
+            WHERE guild_id = ? AND played_at BETWEEN ? AND ?
+        """, (guild_id, start_date, end_date)) as cursor:
+            total = (await cursor.fetchone())["total"]
+
+        # 총 곡 수 (중복 제외)
+        async with db.execute("""
+            SELECT COUNT(DISTINCT video_id) as unique_count FROM recap_history
+            WHERE guild_id = ? AND played_at BETWEEN ? AND ?
+        """, (guild_id, start_date, end_date)) as cursor:
+            unique_count = (await cursor.fetchone())["unique_count"]
+
+        # TOP 5 곡
+        async with db.execute("""
+            SELECT video_id, title, url, COUNT(*) as play_count
+            FROM recap_history
+            WHERE guild_id = ? AND played_at BETWEEN ? AND ?
+            GROUP BY video_id
+            ORDER BY play_count DESC
+            LIMIT 5
+        """, (guild_id, start_date, end_date)) as cursor:
+            top_tracks = [dict(row) for row in await cursor.fetchall()]
+
+        # TOP 30 곡 (플레이리스트용)
+        async with db.execute("""
+            SELECT video_id, title, url, COUNT(*) as play_count
+            FROM recap_history
+            WHERE guild_id = ? AND played_at BETWEEN ? AND ?
+            GROUP BY video_id
+            ORDER BY play_count DESC
+            LIMIT 30
+        """, (guild_id, start_date, end_date)) as cursor:
+            top_playlist = [dict(row) for row in await cursor.fetchall()]
+
+        return {
+            "total": total,
+            "unique_count": unique_count,
+            "top_tracks": top_tracks,
+            "top_playlist": top_playlist,
+        }
+
+
+async def get_recap_history_count(guild_id: str) -> int:
+    """서버의 recap 기록 수 조회"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(DISTINCT video_id) FROM recap_history WHERE guild_id = ?",
+            (guild_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
+
+
+# ── 서버 설정 ──────────────────────────────────────────
+
+async def set_guild_setting(guild_id: str, recap_channel_id: str):
+    """서버 설정 저장"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT OR REPLACE INTO guild_settings (guild_id, recap_channel_id)
+            VALUES (?, ?)
+        """, (guild_id, recap_channel_id))
+        await db.commit()
+
+
+async def get_guild_setting(guild_id: str) -> dict | None:
+    """서버 설정 조회"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM guild_settings WHERE guild_id = ?", (guild_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
