@@ -113,6 +113,12 @@ class Music(commands.Cog):
                 title=player.title,
                 url=url,
             ))
+            asyncio.create_task(add_recap_history(  # 추가
+                guild_id=str(interaction.guild.id),
+                video_id=player.id,
+                title=player.title,
+                url=url,
+            ))
             await send(embed=now_playing_embed(player, interaction.user))
         else:
             if not queue.add(url, player.title, interaction.user):
