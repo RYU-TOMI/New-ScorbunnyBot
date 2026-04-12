@@ -58,7 +58,9 @@ class Music(commands.Cog):
             is_autoplay = True
             await channel.send(f"🎵 자동재생: **{rec['title']}**")
 
-        url, title, *_ = next_track
+        url, title, *rest = next_track
+        requester = rest[0] if rest else guild.me  # 요청자 추출
+
         try:
             player = await YTDLSource.from_url(url, loop=self.bot.loop)
             queue.current = (url, title)
@@ -73,19 +75,21 @@ class Music(commands.Cog):
                 )
 
             vc.play(player, after=after_playing)
-            asyncio.create_task(add_play_history(
-                guild_id=str(guild.id),
-                video_id=player.id,
-                title=player.title,
-                url=url,
-            ))
-            asyncio.create_task(add_recap_history(
-                guild_id=str(guild.id),
-                video_id=player.id,
-                title=player.title,
-                url=url,
-            ))
-            await channel.send(embed=now_playing_embed(player, guild.me, autoplay=is_autoplay))
+
+            if player.duration and player.duration <= 600:
+                asyncio.create_task(add_play_history(
+                    guild_id=str(guild.id),
+                    video_id=player.id,
+                    title=player.title,
+                    url=url,
+                ))
+                asyncio.create_task(add_recap_history(
+                    guild_id=str(guild.id),
+                    video_id=player.id,
+                    title=player.title,
+                    url=url,
+                ))
+            await channel.send(embed=now_playing_embed(player, requester, autoplay=is_autoplay))
 
         except Exception as e:
             print(f"play_next 오류: {e}")
@@ -100,25 +104,28 @@ class Music(commands.Cog):
         vc = interaction.guild.voice_client
         send = interaction.followup.send if is_url else interaction.channel.send
 
-        if not vc.is_playing():
+        # is_playing()과 is_paused() 둘 다 체크
+        if not vc.is_playing() and not vc.is_paused() and queue.is_empty() and not queue.current:
             queue.current = (url, player.title, interaction.user)
             queue.last_video_id = player.id
 
             vc.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(
                 self.play_next(interaction.guild, interaction.channel), self.bot.loop
             ))
-            asyncio.create_task(add_play_history(
-                guild_id=str(interaction.guild.id),
-                video_id=player.id,
-                title=player.title,
-                url=url,
-            ))
-            asyncio.create_task(add_recap_history(  # 추가
-                guild_id=str(interaction.guild.id),
-                video_id=player.id,
-                title=player.title,
-                url=url,
-            ))
+
+            if player.duration and player.duration <= 600:
+                asyncio.create_task(add_play_history(
+                    guild_id=str(interaction.guild.id),
+                    video_id=player.id,
+                    title=player.title,
+                    url=url,
+                ))
+                asyncio.create_task(add_recap_history(
+                    guild_id=str(interaction.guild.id),
+                    video_id=player.id,
+                    title=player.title,
+                    url=url,
+                ))
             await send(embed=now_playing_embed(player, interaction.user))
         else:
             if not queue.add(url, player.title, interaction.user):
@@ -284,6 +291,7 @@ class Music(commands.Cog):
             vc.stop()
         await vc.disconnect()
         await interaction.followup.send("🐰 염버니가 음악을 멈추고 집으로 돌아갔어요.")
+
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
