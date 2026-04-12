@@ -1,6 +1,9 @@
+import asyncio
+import re
 import aiohttp
 import os
 from datetime import datetime, timedelta, timezone
+from bs4 import BeautifulSoup
 
 BASE_URL = "https://open.api.nexon.com/maplestory/v1"
 
@@ -19,17 +22,68 @@ async def _get(session: aiohttp.ClientSession, endpoint: str, params: dict) -> d
         return await res.json()
 
 async def fetch_all(character_name: str) -> dict:
-    """ocid 조회 후 기본정보/스탯/장비 병렬 요청"""
     async with aiohttp.ClientSession() as session:
         ocid_data = await _get(session, "/id", {"character_name": character_name})
         ocid = ocid_data["ocid"]
         date = _yesterday()
         params = {"ocid": ocid, "date": date}
 
-        import asyncio
         basic, stat, equipment = await asyncio.gather(
             _get(session, "/character/basic", params),
             _get(session, "/character/stat", params),
             _get(session, "/character/item-equipment", params),
         )
         return {"basic": basic, "stat": stat, "equipment": equipment}
+
+async def fetch_sunday_maple() -> dict | None:
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        await page.goto("https://maplestory.nexon.com/News/Event")
+        await asyncio.sleep(3)
+
+        # 썬데이 메이플 링크 + 날짜 추출
+        entry = await page.evaluate("""
+            () => {
+                for (const a of document.querySelectorAll('a')) {
+                    const text = a.textContent.trim();
+                    if (text === '썬데이 메이플' || text.includes('스페셜 썬데이')) {
+                        const parent = a.closest('li') || a.parentElement;
+                        return { href: a.href, title: text, context: parent ? parent.innerText : '' };
+                    }
+                }
+                return null;
+            }
+        """)
+
+        if not entry:
+            await browser.close()
+            return None
+
+        url = entry["href"].replace("/News/Event/", "/News/Event/Ongoing/")
+        await page.goto(url)
+        await asyncio.sleep(5)
+
+        # 본문 이미지 중 lwi.nexon.com 것만 추출 (실제 혜택 이미지)
+        imgs = await page.evaluate("""
+            () => {
+                const imgs = document.querySelectorAll('.new_board_con img, .view_content img, .event_view_roll img');
+                return [...imgs]
+                    .map(img => img.src)
+                    .filter(src => src.includes('lwi.nexon.com'));
+            }
+        """)
+
+        date_match = re.search(r'\d{4}\.\d{2}\.\d{2}.*?\d{4}\.\d{2}\.\d{2}', entry["context"])
+        period = date_match.group(0) if date_match else ""
+
+        await browser.close()
+
+    return {
+        "title": entry["title"],
+        "url": url,
+        "period": period,
+        "images": imgs,
+    }

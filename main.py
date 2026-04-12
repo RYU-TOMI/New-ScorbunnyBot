@@ -12,7 +12,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", owner_id=int(os.getenv("OWNER_ID", "0")), intents=intents)
 
 
 async def load_extensions():
@@ -39,7 +39,7 @@ async def main():
     async with bot:
         await init_db()
         await load_extensions()
-        await bot.start(os.getenv("DISCORD_TOKEN"))
+        await bot.start(os.getenv("TEST_TOKEN"))
 
 
 asyncio.run(main())

@@ -139,13 +139,20 @@ class Recap(commands.Cog):
     async def before_recap_task(self):
         await self.bot.wait_until_ready()
 
-    @app_commands.command(name="봇채널설정", description="RECAP을 발송할 채널을 설정합니다.")
-    @is_owner()
-    async def set_channel(self, interaction: discord.Interaction, 채널: discord.TextChannel):
-        await set_guild_setting(str(interaction.guild.id), str(채널.id))
-        await interaction.response.send_message(
-            f"✅ RECAP 채널이 {채널.mention}으로 설정됐어요.", ephemeral=True
-        )
+    @commands.command(name="봇채널설정")
+    @commands.is_owner()
+    async def set_channel(self, ctx, 채널: discord.TextChannel):
+        await set_guild_setting(str(ctx.guild.id), str(채널.id))
+        await ctx.send(f"✅ RECAP 채널이 {채널.mention}으로 설정됐어요.")
+
+    @set_channel.error
+    async def set_channel_error(self, ctx, error):
+        if isinstance(error, commands.NotOwner):
+            await ctx.send("❌ 봇 관리자만 사용할 수 있어요.", delete_after=5)
+        elif isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("❌ 사용법: `!봇채널설정 #채널`", delete_after=5)
+        elif isinstance(error, commands.BadArgument):
+            await ctx.send("❌ 채널을 찾을 수 없어요.", delete_after=5)
 
     @app_commands.command(name="리캡", description="분기별 RECAP 플레이리스트를 대기열에 추가합니다.")
     @app_commands.describe(분기="RECAP을 볼 분기를 선택하세요.")
@@ -220,32 +227,34 @@ class Recap(commands.Cog):
         if vc and not vc.is_playing():
             await music_cog.play_next(interaction.guild, interaction.channel)
 
-    @app_commands.command(name="recap테스트", description="RECAP 발송을 즉시 테스트합니다.")
-    @is_owner()
-    async def recap_test(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+    @commands.command(name="recap테스트")
+    @commands.is_owner()
+    async def recap_test(self, ctx):
         now = datetime.now(timezone.utc)
         quarter = (now.month - 1) // 3 + 1
         year = now.year
-        await send_recap(interaction.guild, year, quarter)
-        await interaction.followup.send("✅ RECAP 테스트 발송 완료!", ephemeral=True)
+        await send_recap(ctx.guild, year, quarter)
+        await ctx.send("✅ RECAP 테스트 발송 완료!")
 
-    @app_commands.command(name="recap미리보기", description="현재 분기 RECAP을 미리 확인합니다.")
-    @is_owner()
-    async def recap_preview(self, interaction: discord.Interaction):
-        """현재 분기 RECAP 미리보기 (나만 사용 가능)"""
-        await interaction.response.defer(ephemeral=True)
+    @recap_test.error
+    async def recap_test_error(self, ctx, error):
+        if isinstance(error, commands.NotOwner):
+            await ctx.send("❌ 봇 관리자만 사용할 수 있어요.", delete_after=5)
 
+
+    @commands.command(name="recap미리보기")
+    @commands.is_owner()
+    async def recap_preview(self, ctx):
         now = datetime.now(timezone.utc)
         quarter = (now.month - 1) // 3 + 1
         year = now.year
         quarter_name = QUARTERS[quarter][0]
 
         start, end = get_quarter_dates(year, quarter)
-        stats = await get_recap_stats(str(interaction.guild.id), start, end)
+        stats = await get_recap_stats(str(ctx.guild.id), start, end)
 
         if stats["total"] == 0:
-            await interaction.followup.send("❌ 이번 분기 재생 기록이 없어요.", ephemeral=True)
+            await ctx.send("❌ 이번 분기 재생 기록이 없어요.")
             return
 
         embed = discord.Embed(
@@ -263,7 +272,39 @@ class Recap(commands.Cog):
                 inline=False,
             )
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await ctx.send(embed=embed)
+
+    @recap_preview.error
+    async def recap_preview_error(self, ctx, error):
+        if isinstance(error, commands.NotOwner):
+            await ctx.send("❌ 봇 관리자만 사용할 수 있어요.", delete_after=5)
+
+    @commands.command(name="음악커맨드")
+    @commands.is_owner()
+    async def music_command_guide(self, ctx):
+        embed = discord.Embed(
+            title="📋 음악 관리자 커맨드 가이드",
+            color=discord.Color.blurple()
+        )
+        embed.add_field(
+            name="🎵 RECAP 설정",
+            value="`!봇채널설정 #채널` — RECAP 발송 채널 설정",
+            inline=False
+        )
+        embed.add_field(
+            name="🔧 테스트",
+            value=(
+                "`!recap테스트` — RECAP 즉시 발송\n"
+                "`!recap미리보기` — 현재 분기 RECAP 미리 확인"
+            ),
+            inline=False
+        )
+        await ctx.send(embed=embed)
+
+    @music_command_guide.error
+    async def music_command_guide_error(self, ctx, error):
+        if isinstance(error, commands.NotOwner):
+            await ctx.send("❌ 봇 관리자만 사용할 수 있어요.", delete_after=5)
 
 
 async def setup(bot):

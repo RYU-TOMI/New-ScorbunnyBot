@@ -309,3 +309,84 @@ async def get_guild_setting(guild_id: str) -> dict | None:
         ) as cursor:
             row = await cursor.fetchone()
             return dict(row) if row else None
+        
+
+# ── 메이플스토리 ────────────────────────────────────────
+
+async def init_sunday_channels():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sunday_channels (
+                guild_id INTEGER PRIMARY KEY,
+                channel_id INTEGER NOT NULL,
+                role_id INTEGER
+            )
+        """)
+        # 기존 테이블에 role_id 컬럼 없으면 추가 (migration)
+        try:
+            await db.execute("ALTER TABLE sunday_channels ADD COLUMN role_id INTEGER")
+        except Exception:
+            pass  # 이미 있으면 무시
+        await db.commit()
+
+async def set_sunday_channel(guild_id: int, channel_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO sunday_channels (guild_id, channel_id)
+            VALUES (?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET channel_id = excluded.channel_id
+        """, (guild_id, channel_id))
+        await db.commit()
+
+async def get_all_sunday_channels() -> list[tuple[int, int]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT guild_id, channel_id FROM sunday_channels") as cursor:
+            return await cursor.fetchall()
+
+async def delete_sunday_channel(guild_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM sunday_channels WHERE guild_id = ?", (guild_id,))
+        await db.commit()
+
+async def get_last_sunday_url() -> str | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sunday_state (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        async with db.execute(
+            "SELECT value FROM sunday_state WHERE key = 'last_url'"
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+async def set_last_sunday_url(url: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sunday_state (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        await db.execute("""
+            INSERT INTO sunday_state (key, value) VALUES ('last_url', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """, (url,))
+        await db.commit()
+
+async def set_sunday_role(guild_id: int, role_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            UPDATE sunday_channels SET role_id = ? WHERE guild_id = ?
+        """, (role_id, guild_id))
+        await db.commit()
+
+async def get_sunday_role(guild_id: int) -> int | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT role_id FROM sunday_channels WHERE guild_id = ?", (guild_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row and row[0] else None
