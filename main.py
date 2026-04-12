@@ -39,7 +39,7 @@ async def main():
     async with bot:
         await init_db()
         await load_extensions()
-        await bot.start(os.getenv("TEST_TOKEN"))
+        await bot.start(os.getenv("DISCORD_TOKEN"))
 
 
 asyncio.run(main())
