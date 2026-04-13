@@ -281,6 +281,18 @@ class Music(commands.Cog):
         status = "활성화" if queue.loop_current else "비활성화"
         await interaction.response.send_message(f"🔂 한 곡 반복 모드가 {status}됐어요.")
 
+    @app_commands.command(name="음량", description="음량을 조절합니다. (1~100)")
+    async def volume(self, interaction: discord.Interaction, 음량: int):
+        vc = interaction.guild.voice_client
+        if not vc or not vc.is_playing():
+            await interaction.response.send_message(embed=error_embed("재생 중인 음악이 없어요."), ephemeral=True)
+            return
+        if not 1 <= 음량 <= 100:
+            await interaction.response.send_message(embed=error_embed("음량은 1~100 사이로 입력해주세요."), ephemeral=True)
+            return
+        vc.source.volume = 음량 / 100
+        await interaction.response.send_message(f"🔊 음량을 **{음량}%**로 설정했어요.")
+
     @app_commands.command(name="나가", description="음악을 멈추고 음성 채널에서 나갑니다.")
     async def stop(self, interaction: discord.Interaction):
         vc = interaction.guild.voice_client
