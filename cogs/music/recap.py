@@ -1,5 +1,6 @@
 import discord
 import asyncio
+import os
 from datetime import datetime, timezone
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -9,7 +10,7 @@ from db.database import (
     set_guild_setting, get_guild_setting
 )
 
-OWNER_ID = 336131629103710208
+OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
 # 분기 정의
 QUARTERS = {
