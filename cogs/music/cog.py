@@ -74,6 +74,10 @@ class Music(commands.Cog):
                     self.play_next(guild, channel), self.bot.loop
                 )
 
+            #
+            if vc.is_playing():
+                return
+
             vc.play(player, after=after_playing)
 
             if player.duration and player.duration <= 600:
@@ -105,7 +109,7 @@ class Music(commands.Cog):
         send = interaction.followup.send if is_url else interaction.channel.send
 
         # is_playing()과 is_paused() 둘 다 체크
-        if not vc.is_playing() and not vc.is_paused() and queue.is_empty() and not queue.current:
+        if not vc.is_playing() and not vc.is_paused():
             queue.current = (url, player.title, interaction.user)
             queue.last_video_id = player.id
 
