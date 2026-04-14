@@ -269,7 +269,11 @@ class MapleCog(commands.Cog):
     @tasks.loop(minutes=30)
     async def sunday_check(self):
         now = datetime.now(KST)
-        is_friday_window = now.weekday() == 4 and 10 <= now.hour < 12
+        is_friday_window = now.weekday() == 4 and (
+            (now.hour == 10 and now.minute >= 10) or
+            (now.hour == 11) or
+            (now.hour == 12 and now.minute <= 10)
+        )
         is_sunday_backup = now.weekday() == 6 and now.hour == 0 and now.minute < 5
 
         if not (is_friday_window or is_sunday_backup):
