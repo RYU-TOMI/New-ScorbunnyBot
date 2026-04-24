@@ -167,13 +167,8 @@ async def send_sunday(channel: discord.TextChannel, data: dict):
         await channel.send(content=mention or None, embed=build_sunday_embed(data))
         return
 
-    # 첫 번째 메시지에만 멘션 포함
+    # 첫 번째 이미지만 전송
     await channel.send(content=mention or None, embed=build_sunday_embed(data, image_url=images[0]))
-
-    for img_url in images[1:]:
-        embed = discord.Embed(color=0xE7221B)
-        embed.set_image(url=img_url)
-        await channel.send(embed=embed)
 
 
 # ── View ─────────────────────────────────────────────────
