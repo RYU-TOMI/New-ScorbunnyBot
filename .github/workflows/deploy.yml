@@ -22,11 +22,5 @@ jobs:
             source venv/bin/activate
             pip install -r requirements.txt
             playwright install chromium
-
-            # 기존 봇 프로세스 종료
-            pkill -f "python3 -u main.py" || true
-            sleep 2
-
-            # 새로운 세션으로 완전히 분리해서 실행
-            setsid nohup ~/New-ScorbunnyBot/venv/bin/python3 -u ~/New-ScorbunnyBot/main.py > ~/New-ScorbunnyBot/bot.log 2>&1 < /dev/null &
+            sudo systemctl restart scorbunny
             echo "✅ 배포 완료"
