@@ -303,7 +303,6 @@ class MapleCog(commands.Cog):
 
     @app_commands.command(name="메이플", description="메이플스토리 캐릭터 정보를 조회합니다.")
     @app_commands.describe(닉네임="조회할 캐릭터 닉네임")
-    @is_owner()
     async def maple(self, interaction: discord.Interaction, 닉네임: str):
         await interaction.response.defer()
         try:
@@ -319,7 +318,6 @@ class MapleCog(commands.Cog):
         await interaction.followup.send(embed=view.current_embed(), view=view)
 
     @app_commands.command(name="썬데이", description="이번 주 썬데이 메이플 정보를 조회합니다.")
-    @is_owner()
     async def sunday(self, interaction: discord.Interaction):
         await interaction.response.defer()
         data = await api.fetch_sunday_maple()

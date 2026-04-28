@@ -1,0 +1,31 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            cd ~/New-ScorbunnyBot
+            git pull origin main
+            source venv/bin/activate
+            pip install -r requirements.txt
+            playwright install chromium
+
+            # 기존 봇 프로세스 종료
+            pkill -f "python3 -u main.py" || true
+
+            # 봇 재시작
+            nohup python3 -u main.py > bot.log 2>&1 &
+            echo "✅ 배포 완료"
