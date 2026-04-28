@@ -27,7 +27,6 @@ jobs:
             pkill -f "python3 -u main.py" || true
             sleep 2
 
-            # 봇 재시작 (disown으로 Actions와 완전히 분리)
-            nohup python3 -u main.py > bot.log 2>&1 &
-            disown
+            # 새로운 세션으로 완전히 분리해서 실행
+            setsid nohup ~/New-ScorbunnyBot/venv/bin/python3 -u ~/New-ScorbunnyBot/main.py > ~/New-ScorbunnyBot/bot.log 2>&1 < /dev/null &
             echo "✅ 배포 완료"
