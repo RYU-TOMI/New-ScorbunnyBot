@@ -18,8 +18,10 @@ bot = commands.Bot(command_prefix="!", owner_id=int(os.getenv("OWNER_ID", "0")),
 async def load_extensions():
     await bot.load_extension("cogs.music.cog")
     await bot.load_extension("cogs.music.recap")
-    await bot.load_extension("cogs.valorant.cog")
-    await bot.load_extension("cogs.maple.cog")
+    # --- 비활성화된 기능 (복구하려면 아래 주석을 해제) ---
+    # await bot.load_extension("cogs.valorant.cog")
+    # await bot.load_extension("cogs.maple.cog")
+    # ---------------------------------------------
     print("모든 확장 로드 완료")
 
 
