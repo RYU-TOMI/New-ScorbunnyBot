@@ -4,8 +4,6 @@ PyNaCl
 python-dotenv
 aiosqlite
 aiohttp
-cryptography
-flask
 certifi
 playwright
 beautifulsoup4

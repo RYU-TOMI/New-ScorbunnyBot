@@ -1,6 +1,8 @@
 # 🐰 염버니봇 (ScorbunnyBot)
 
-친구들과 함께 사용하는 디스코드 봇. 음악 재생, 발로란트 상점 조회, 메이플스토리 정보 조회를 지원합니다.
+친구들과 함께 사용하는 디스코드 봇. 음악 재생, 메이플스토리 정보 조회를 지원합니다.
+
+> 💡 발로란트 상점 조회 기능은 별도 리포로 분리되었습니다: [valorant-shop-notifier](https://github.com/RYU-TOMI/valorant-shop-notifier)
 
 ---
 
@@ -13,7 +15,6 @@
 | **음악** | yt-dlp, FFmpeg, PyNaCl |
 | **HTTP** | aiohttp, certifi |
 | **DB** | SQLite (aiosqlite) |
-| **암호화** | cryptography (Fernet) |
 | **크롤링** | Playwright, BeautifulSoup4 |
 | **배포** | Docker + AWS EC2 |
 
@@ -45,22 +46,6 @@ YouTube URL 또는 검색어로 음악을 재생합니다. 재생 기록은 DB�
 **자동재생:** 대기열이 비었을 때 이전 재생 기록에서 랜덤으로 곡을 선택해 재생합니다. 최근 10곡은 제외되며, 재생 기록이 30곡 이상 쌓여야 활성화됩니다.
 
 **RECAP:** 매 분기(1/4/7/10월 1일 자정)에 해당 분기의 재생 통계와 TOP 5를 지정 채널에 자동 발송합니다. 10분 이상의 곡은 기록에서 제외됩니다.
-
----
-
-### 🎮 발로란트
-
-Riot 공식 OAuth를 통해 발급된 access_token으로 개인 상점을 조회합니다. 토큰은 Fernet으로 암호화하여 DB에 저장됩니다.
-
-| 커맨드 | 설명 |
-|--------|------|
-| `/로그인` | Riot 계정 연동 안내 |
-| `/인증 [URL]` | 로그인 후 리다이렉트된 URL로 인증 |
-| `/상점` | 오늘의 발로란트 스킨 상점 확인 |
-| `/야시장` | 야시장 할인 목록 확인 |
-| `/로그아웃` | 연동된 계정 정보 삭제 |
-
-> 토큰 유효 시간은 1시간입니다. 만료 시 로그아웃 후 재로그인이 필요합니다.
 
 ---
 
@@ -96,13 +81,11 @@ Nexon Open API를 이용해 캐릭터 정보를 조회하고, 매주 썬데이 �
 
 | 테이블 | 용도 |
 |--------|------|
-| `users` | 발로란트 유저 인증 정보 (토큰 암호화 저장) |
 | `play_history` | 서버별 재생 기록 (자동재생용, 곡당 1행) |
 | `recap_history` | 서버별 재생 기록 (RECAP용, 재생마다 1행) |
 | `guild_settings` | 서버별 RECAP 채널 설정 |
 | `sunday_channels` | 썬데이 메이플 알림 채널 및 역할 |
 | `sunday_state` | 마지막으로 전송한 썬데이 URL (중복 전송 방지) |
-| `login_sessions` | 임시 로그인 세션 |
 
 ---
 
@@ -115,14 +98,7 @@ Nexon Open API를 이용해 캐릭터 정보를 조회하고, 매주 썬데이 �
 ```
 DISCORD_TOKEN=your_discord_bot_token
 OWNER_ID=your_discord_user_id
-ENCRYPTION_KEY=your_fernet_key
 NEXON_API_KEY=your_nexon_api_key
-```
-
-Fernet 키 생성:
-```python
-from cryptography.fernet import Fernet
-print(Fernet.generate_key().decode())
 ```
 
 ### 2. 의존성 설치

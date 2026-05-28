@@ -19,9 +19,9 @@ async def load_extensions():
     await bot.load_extension("cogs.music.cog")
     await bot.load_extension("cogs.music.recap")
     # --- 비활성화된 기능 (복구하려면 아래 주석을 해제) ---
-    # await bot.load_extension("cogs.valorant.cog")
     # await bot.load_extension("cogs.maple.cog")
     # ---------------------------------------------
+    # 발로란트 기능은 valorant-shop-notifier 리포로 분리됨
     print("모든 확장 로드 완료")
 
 
