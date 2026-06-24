@@ -11,6 +11,10 @@ class MusicQueue:
         self.autoplay = True
         self.last_video_id = None
         self.last_title = None
+        # 재생 실패 폭주 방지용 상태
+        self.started_at = None   # 마지막 곡 재생 시작 시각 (monotonic)
+        self.fail_streak = 0     # 연속으로 즉시 끝난(재생 실패) 횟수
+        self.skipping = False    # 사용자가 의도적으로 스킵한 경우 True (실패로 오인 방지)
 
     def add(self, url: str, title: str, requester=None) -> bool:
         """큐에 곡 추가. 성공 여부 반환"""

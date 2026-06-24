@@ -1,5 +1,6 @@
 import discord
 import asyncio
+import time
 from discord import app_commands
 from discord.ext import commands
 
@@ -70,6 +71,36 @@ class Music(commands.Cog):
             def after_playing(error):
                 if error:
                     print(f"재생 오류: {error}")
+
+                # 사용자가 직접 스킵한 경우는 실패가 아니므로 카운트하지 않는다.
+                if queue.skipping:
+                    queue.skipping = False
+                    queue.fail_streak = 0
+                    asyncio.run_coroutine_threadsafe(
+                        self.play_next(guild, channel), self.bot.loop
+                    )
+                    return
+
+                # 곡이 비정상적으로 빨리(3초 미만) 끝나면 재생 실패로 간주.
+                # 스트림 403 등으로 자동재생이 무한히 다음 곡으로 폭주하는 것을 방지한다.
+                elapsed = time.monotonic() - (queue.started_at or 0)
+                if elapsed < 3:
+                    queue.fail_streak += 1
+                else:
+                    queue.fail_streak = 0
+
+                if queue.fail_streak >= 3:
+                    queue.fail_streak = 0
+                    queue.autoplay = False
+                    asyncio.run_coroutine_threadsafe(
+                        channel.send(embed=error_embed(
+                            "곡이 계속 재생되지 않아 자동재생을 멈췄어요. "
+                            "유튜브 차단(403)일 수 있어요. 봇 로그를 확인하거나 잠시 후 다시 시도해 주세요."
+                        )),
+                        self.bot.loop,
+                    )
+                    return
+
                 asyncio.run_coroutine_threadsafe(
                     self.play_next(guild, channel), self.bot.loop
                 )
@@ -78,6 +109,7 @@ class Music(commands.Cog):
             if vc.is_playing():
                 return
 
+            queue.started_at = time.monotonic()
             vc.play(player, after=after_playing)
 
             if player.duration and player.duration <= 600:
@@ -112,6 +144,8 @@ class Music(commands.Cog):
         if not vc.is_playing() and not vc.is_paused():
             queue.current = (url, player.title, interaction.user)
             queue.last_video_id = player.id
+            queue.fail_streak = 0  # 사용자가 직접 재생하면 실패 카운터 초기화
+            queue.started_at = time.monotonic()
 
             vc.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(
                 self.play_next(interaction.guild, interaction.channel), self.bot.loop
@@ -227,6 +261,7 @@ class Music(commands.Cog):
             await interaction.response.send_message(embed=error_embed("루프 모드가 활성화되어 있을 때는 스킵할 수 없어요."), ephemeral=True)
             return
         if vc.is_playing():
+            queue.skipping = True  # 의도적 스킵 — 재생 실패로 오인하지 않도록 표시
             vc.stop()
         await interaction.response.send_message("⏭️ 현재 곡을 건너뛰었어요.")
 

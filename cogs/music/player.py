@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import discord
 import yt_dlp as youtube_dl
 
@@ -16,10 +17,30 @@ YTDL_FORMAT_OPTIONS = {
     'cookiefile': 'cookies.txt',
 }
 
+# FFmpeg 기본 옵션. before_options에는 재생 직전 http_headers를 동적으로 덧붙인다.
+FFMPEG_BEFORE_OPTIONS = '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin'
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin',
+    'before_options': FFMPEG_BEFORE_OPTIONS,
     'options': '-vn -ar 48000 -ac 2 -b:a 192k -filter:a "volume=0.15"',
 }
+
+
+def _build_ffmpeg_options(data: dict) -> dict:
+    """yt-dlp가 추출한 http_headers(User-Agent 등)를 FFmpeg에 전달하는 옵션 생성.
+
+    EC2 같은 데이터센터 IP에서는 yt-dlp와 동일한 헤더 없이 스트림 URL을 요청하면
+    YouTube가 403을 돌려주고, FFmpeg 스트림이 0초 만에 끊겨 곡이 휙휙 넘어간다.
+    추출 시점의 헤더를 그대로 붙여 이 문제를 방지한다.
+    """
+    before = FFMPEG_BEFORE_OPTIONS
+    http_headers = data.get('http_headers') or {}
+    header_lines = ''.join(f"{k}: {v}\r\n" for k, v in http_headers.items())
+    if header_lines:
+        before += f' -headers "{header_lines}"'
+    return {
+        'before_options': before,
+        'options': '-vn -ar 48000 -ac 2 -b:a 192k -filter:a "volume=0.15"',
+    }
 
 YTDL_SEARCH_OPTIONS = {
     'format': 'bestaudio/best',
@@ -52,7 +73,12 @@ class YTDLSource(discord.PCMVolumeTransformer):
         )
         if 'entries' in data:
             data = data['entries'][0]
-        return cls(discord.FFmpegPCMAudio(data['url'], **FFMPEG_OPTIONS), data=data)
+        source = discord.FFmpegPCMAudio(
+            data['url'],
+            stderr=sys.stderr,  # FFmpeg 오류(403 등)를 봇 로그에 노출
+            **_build_ffmpeg_options(data),
+        )
+        return cls(source, data=data)
 
     @classmethod
     async def search(cls, query: str, *, loop=None) -> list[dict] | None:
